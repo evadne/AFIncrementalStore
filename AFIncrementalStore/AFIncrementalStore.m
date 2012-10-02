@@ -309,8 +309,26 @@ static NSString * const kAFIncrementalStoreResourceIdentifierAttributeName = @"_
             }
             case NSManagedObjectIDResultType:
             case NSDictionaryResultType:
-            case NSCountResultType:
-                return [backingContext executeFetchRequest:fetchRequest error:error];
+            case NSCountResultType: {
+                id answer = [backingContext executeFetchRequest:fetchRequest error:error];
+								NSLog(@"%s, %@ -> %@", __PRETTY_FUNCTION__, fetchRequest, answer);
+								
+								if (resultType == NSManagedObjectIDResultType) {
+								
+									NSMutableArray *objectIDs = [NSMutableArray arrayWithCapacity:[answer count]];
+									for (NSManagedObjectID *objectID in objectIDs) {
+										 NSManagedObject *obj = [backingContext objectWithID:objectID];
+										 NSString *resourceID = [obj valueForKey:kAFIncrementalStoreResourceIdentifierAttributeName];
+										 [objectIDs addObject:[self objectIDForEntity:fetchRequest.entity withResourceIdentifier:resourceID]];
+									}
+									
+									return objectIDs;
+									 
+								
+								}
+								
+								return answer;
+						}
             default:
                 goto _error;
         }
