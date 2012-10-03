@@ -161,7 +161,11 @@ static NSString * AFPluralizedString(NSString *string) {
                 pathForObjectWithID:(NSManagedObjectID *)objectID
                         withContext:(NSManagedObjectContext *)context
 {
-    NSManagedObject *object = [context objectWithID:objectID];
+		NSCParameterAssert(method);
+		NSCParameterAssert(objectID);
+		NSCParameterAssert(context);
+		
+		NSManagedObject *object = [context objectWithID:objectID];
     return [self requestWithMethod:method path:[self pathForObject:object] parameters:nil];
 }
 
