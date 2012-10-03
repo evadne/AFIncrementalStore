@@ -148,6 +148,21 @@ static NSString * AFPluralizedString(NSString *string) {
     return mutableAttributes;
 }
 
+- (NSDictionary *) representationForObject:(NSManagedObject *)object {
+
+	NSEntityDescription *entity = object.entity;
+	NSMutableDictionary *dictionary = [NSMutableDictionary dictionary];
+	
+	[entity.attributesByName enumerateKeysAndObjectsUsingBlock:^(NSString *attributeName, NSAttributeDescription *attribute, BOOL *stop) {
+
+		[dictionary setValue:[object valueForKey:attributeName] forKey:attributeName];
+			
+	}];
+	
+	return dictionary;
+
+}
+
 - (NSURLRequest *)requestForFetchRequest:(NSFetchRequest *)fetchRequest 
                              withContext:(NSManagedObjectContext *)context
 {

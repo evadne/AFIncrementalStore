@@ -151,6 +151,14 @@
                                  fromResponse:(NSHTTPURLResponse *)response;
 
 /**
+	Returns the key-value pairs used as form data to send to a remote endpoint in order to update an object.  This method is used to determine data to send when the incremental store is processing a save request.
+
+	@param object The managed object being serialized.
+	@return An `NSDictionary` containing the attributes for a managed object.
+ */
+- (NSDictionary *) representationForObject:(NSManagedObject *)object;
+
+/**
  Returns a URL request object for the specified fetch request within a particular managed object context.
  
  @discussion For example, if the fetch request specified the `User` entity, this method might return an `NSURLRequest` with `GET /users` if the web service was RESTful, `POST /endpoint?method=users.getAll` for an RPC-style system, or a request with an XML envelope body for a SOAP webservice.
