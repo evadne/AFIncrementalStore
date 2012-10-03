@@ -261,6 +261,8 @@ extern NSError * AFIncrementalStoreError (NSUInteger code, NSString *localizedDe
 	for (NSString *relationshipName in relationshipRepresentations) {
 	
 		NSRelationshipDescription *relationship = [[entity relationshipsByName] valueForKey:relationshipName];
+		NSEntityDescription *entity = relationship.destinationEntity;
+		
 		NSCParameterAssert(relationship);
 		
 		if ([relationship isToMany]) {
@@ -380,7 +382,7 @@ extern NSError * AFIncrementalStoreError (NSUInteger code, NSString *localizedDe
 		
 		if (block)
 			block();
-				
+		
 	}];
 
 }
