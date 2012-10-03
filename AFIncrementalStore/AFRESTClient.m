@@ -37,8 +37,19 @@ static NSString * AFPluralizedString(NSString *string) {
 }
 
 - (NSString *)pathForObject:(NSManagedObject *)object {
-    NSString *resourceIdentifier = [(NSIncrementalStore *)object.objectID.persistentStore referenceObjectForObjectID:object.objectID];
-    return [[self pathForEntity:object.entity] stringByAppendingPathComponent:[resourceIdentifier lastPathComponent]];
+
+	id resourceIdentifier = [(NSIncrementalStore *)object.objectID.persistentStore referenceObjectForObjectID:object.objectID];
+		
+	if (![resourceIdentifier isKindOfClass:[NSString class]]) {
+		if ([resourceIdentifier respondsToSelector:@selector(stringValue)]) {
+			resourceIdentifier = [resourceIdentifier stringValue];
+		}
+	}
+	
+	NSCParameterAssert(!resourceIdentifier || [resourceIdentifier isKindOfClass:[NSString class]]);
+
+	return [[self pathForEntity:object.entity] stringByAppendingPathComponent:[resourceIdentifier lastPathComponent]];
+	
 }
 
 - (NSString *)pathForRelationship:(NSRelationshipDescription *)relationship 
