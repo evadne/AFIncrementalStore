@@ -90,6 +90,11 @@
 ///-----------------------
 
 /**
+	Returns the path of an entity when posting to.
+	*/
+- (NSString *)pathForEntity:(NSEntityDescription *)entity;
+
+/**
  Returns an `NSDictionary` or an `NSArray` of `NSDictionaries` containing the representations of the resources found in a response object.
  
  @discussion For example, if `GET /users` returned an `NSDictionary` with an array of users keyed on `"users"`, this method would return the keyed array. Conversely, if `GET /users/123` returned a dictionary with all of the atributes of the requested user, this method would simply return that dictionary.
