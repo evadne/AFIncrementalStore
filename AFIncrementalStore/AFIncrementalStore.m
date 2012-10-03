@@ -154,15 +154,25 @@ extern NSError * AFIncrementalStoreError (NSUInteger code, NSString *localizedDe
     fetchRequest.resultType = NSManagedObjectIDResultType;
     fetchRequest.fetchLimit = 1;
     fetchRequest.predicate = [NSPredicate predicateWithFormat:@"%K = %@", kAFIncrementalStoreResourceIdentifierAttributeName, resourceIdentifier];
-    
-    NSError *error = nil;
-    NSArray *results = [[self backingManagedObjectContext] executeFetchRequest:fetchRequest error:&error];
+		
+		NSManagedObjectContext *backingContext = [self backingManagedObjectContext];
+    __block NSError *error = nil;
+		__block NSArray *results = nil;
+		
+		[backingContext performBlockAndWait:^{
+			results = [backingContext executeFetchRequest:fetchRequest error:&error];
+		}];
+  
     if (error) {
         NSLog(@"Error: %@", error);
-        return nil;
     }
     
-    return [results lastObject];
+    id answer = [results lastObject];
+		error = nil;
+		results = nil;
+		
+		return answer;
+		
 }
 
 # pragma mark - Request Dispatch
@@ -253,6 +263,7 @@ extern NSError * AFIncrementalStoreError (NSUInteger code, NSString *localizedDe
 		*outBackingObject = backingObject;
 	
 	if (![backingObject objectID] || [[backingObject objectID] isTemporaryID]) {
+		[backingObject.managedObjectContext obtainPermanentIDsForObjects:@[ backingObject ] error:nil];
 		[childContext insertObject:managedObject];
 	}
 	
@@ -363,7 +374,7 @@ extern NSError * AFIncrementalStoreError (NSUInteger code, NSString *localizedDe
 
 - (void) handleRemoteFetchRequest:(NSFetchRequest *)fetchRequest finishedWithResponse:(NSHTTPURLResponse *)response savingIntoContext:(NSManagedObjectContext *)context completion:(void(^)(void))block {
 
-	NSManagedObjectContext *childContext = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSMainQueueConcurrencyType];
+	NSManagedObjectContext *childContext = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
 	childContext.parentContext = context;
 	childContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy;
 	[childContext performBlock:^{
@@ -375,13 +386,17 @@ extern NSError * AFIncrementalStoreError (NSUInteger code, NSString *localizedDe
 			[self importRepresentation:representation ofEntity:entity withResponse:response context:childContext asManagedObject:nil backingObject:nil];				
 		}
 		
-		NSError *error = nil;
-		if (![backingContext save:&error] || ![childContext save:&error]) {
-			NSLog(@"Error: %@", error);
-		}
+		dispatch_sync(dispatch_get_main_queue(), ^{
 		
-		if (block)
-			block();
+			NSError *error = nil;
+			if (![backingContext save:&error] || ![childContext save:&error]) {
+				NSLog(@"Error: %@", error);
+			}
+			
+			if (block)
+				block();
+				
+		});
 		
 	}];
 
