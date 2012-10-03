@@ -37,8 +37,19 @@ static NSString * AFPluralizedString(NSString *string) {
 }
 
 - (NSString *)pathForObject:(NSManagedObject *)object {
-    NSString *resourceIdentifier = [(NSIncrementalStore *)object.objectID.persistentStore referenceObjectForObjectID:object.objectID];
-    return [[self pathForEntity:object.entity] stringByAppendingPathComponent:[resourceIdentifier lastPathComponent]];
+
+	id resourceIdentifier = [(NSIncrementalStore *)object.objectID.persistentStore referenceObjectForObjectID:object.objectID];
+		
+	if (![resourceIdentifier isKindOfClass:[NSString class]]) {
+		if ([resourceIdentifier respondsToSelector:@selector(stringValue)]) {
+			resourceIdentifier = [resourceIdentifier stringValue];
+		}
+	}
+	
+	NSCParameterAssert(!resourceIdentifier || [resourceIdentifier isKindOfClass:[NSString class]]);
+
+	return [[self pathForEntity:object.entity] stringByAppendingPathComponent:[resourceIdentifier lastPathComponent]];
+	
 }
 
 - (NSString *)pathForRelationship:(NSRelationshipDescription *)relationship 
@@ -137,6 +148,21 @@ static NSString * AFPluralizedString(NSString *string) {
     return mutableAttributes;
 }
 
+- (NSDictionary *) representationForObject:(NSManagedObject *)object {
+
+	NSEntityDescription *entity = object.entity;
+	NSMutableDictionary *dictionary = [NSMutableDictionary dictionary];
+	
+	[entity.attributesByName enumerateKeysAndObjectsUsingBlock:^(NSString *attributeName, NSAttributeDescription *attribute, BOOL *stop) {
+
+		[dictionary setValue:[object valueForKey:attributeName] forKey:attributeName];
+			
+	}];
+	
+	return dictionary;
+
+}
+
 - (NSURLRequest *)requestForFetchRequest:(NSFetchRequest *)fetchRequest 
                              withContext:(NSManagedObjectContext *)context
 {
@@ -150,7 +176,11 @@ static NSString * AFPluralizedString(NSString *string) {
                 pathForObjectWithID:(NSManagedObjectID *)objectID
                         withContext:(NSManagedObjectContext *)context
 {
-    NSManagedObject *object = [context objectWithID:objectID];
+		NSCParameterAssert(method);
+		NSCParameterAssert(objectID);
+		NSCParameterAssert(context);
+		
+		NSManagedObject *object = [context objectWithID:objectID];
     return [self requestWithMethod:method path:[self pathForObject:object] parameters:nil];
 }
 
