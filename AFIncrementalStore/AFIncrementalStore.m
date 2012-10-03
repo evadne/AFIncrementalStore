@@ -197,10 +197,6 @@ extern NSError * AFIncrementalStoreError (NSUInteger code, NSString *localizedDe
 		
 		//	?
 		
-		NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSMainQueueConcurrencyType];
-		context.persistentStoreCoordinator = self.persistentStoreCoordinator;
-		[context save:nil];
-		
 	}];
 	
 	return [self executeLocalFetchRequest:fetchRequest withContext:context error:error];
@@ -521,14 +517,14 @@ extern NSError * AFIncrementalStoreError (NSUInteger code, NSString *localizedDe
 		
 		NSManagedObjectID *backingObjectID = [self objectIDForBackingObjectForEntity:objectEntity withResourceIdentifier:resourceIdentifier];
 		
-		if (backingObjectID) {
-			
-			return [httpClient requestWithMethod:method pathForObjectWithID:objectID withContext:context];
-		
-		} else {
+		if (!backingObjectID && ([method isEqualToString:@"POST"] || [method isEqualToString:@"PUT"])) {
 		
 			return (NSURLRequest *)[httpClient requestWithMethod:method path:[httpClient pathForEntity:object.entity] parameters:[httpClient representationForObject:object]];
-			
+		
+		} else {
+
+			return [httpClient requestWithMethod:method pathForObjectWithID:objectID withContext:context];
+		
 		}
 		
 	};
