@@ -197,6 +197,10 @@ extern NSError * AFIncrementalStoreError (NSUInteger code, NSString *localizedDe
 		
 		//	?
 		
+		NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSMainQueueConcurrencyType];
+		context.persistentStoreCoordinator = self.persistentStoreCoordinator;
+		[context save:nil];
+		
 	}];
 	
 	return [self executeLocalFetchRequest:fetchRequest withContext:context error:error];
