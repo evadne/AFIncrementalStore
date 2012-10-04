@@ -21,6 +21,7 @@
 // THE SOFTWARE.
 
 #import "AFIncrementalStore.h"
+#import "AFIncrementalStoreReferenceObject.h"
 #import "AFHTTPClient.h"
 
 NSString * const AFIncrementalStoreUnimplementedMethodException = @"com.alamofire.incremental-store.exceptions.unimplemented-method";
@@ -36,6 +37,7 @@ static NSString * const kAFIncrementalStoreResourceIdentifierAttributeName = @"_
 extern NSError * AFIncrementalStoreError (NSUInteger code, NSString *localizedDescription);
 
 @interface AFIncrementalStore ()
+
 - (NSManagedObjectContext *)backingManagedObjectContext;
 - (NSManagedObjectID *)objectIDForEntity:(NSEntityDescription *)entity
                   withResourceIdentifier:(NSString *)resourceIdentifier;
@@ -46,6 +48,11 @@ extern NSError * AFIncrementalStoreError (NSUInteger code, NSString *localizedDe
 - (void)notifyManagedObjectContext:(NSManagedObjectContext *)context
              aboutRequestOperation:(AFHTTPRequestOperation *)operation
          forPersistentStoreRequest:(NSPersistentStoreRequest *)request;
+
+- (NSManagedObjectID *) newObjectIDForEntity:(NSEntityDescription *)entity referenceObject:(AFIncrementalStoreReferenceObject *)data;
+
+- (AFIncrementalStoreReferenceObject *) referenceObjectForObjectID:(NSManagedObjectID *)objectID;
+
 @end
 
 @implementation AFIncrementalStore {
@@ -135,12 +142,16 @@ extern NSError * AFIncrementalStoreError (NSUInteger code, NSString *localizedDe
 
 - (NSManagedObjectID *)objectIDForEntity:(NSEntityDescription *)entity
                   withResourceIdentifier:(NSString *)resourceIdentifier {
-    NSManagedObjectID *objectID = [_registeredObjectIDsByResourceIdentifier objectForKey:resourceIdentifier];
-    if (objectID == nil) {
-        objectID = [self newObjectIDForEntity:entity referenceObject:resourceIdentifier];
-    }
-    
-    return objectID;
+  
+	AFIncrementalStoreReferenceObject *referenceObject = [AFIncrementalStoreReferenceObject objectWithEntity:entity resourceIdentifier:resourceIdentifier];
+
+	NSManagedObjectID *registeredObjectID = [_registeredObjectIDsByResourceIdentifier objectForKey:referenceObject];
+	
+	if (!registeredObjectID)
+		return [self newObjectIDForEntity:entity referenceObject:referenceObject];
+	
+	return registeredObjectID;
+	
 }
 
 - (NSManagedObjectID *)objectIDForBackingObjectForEntity:(NSEntityDescription *)entity
@@ -199,7 +210,11 @@ extern NSError * AFIncrementalStoreError (NSUInteger code, NSString *localizedDe
 		
 	}];
 	
-	return [self executeLocalFetchRequest:fetchRequest withContext:context error:error];
+	id localResults = [self executeLocalFetchRequest:fetchRequest withContext:context error:error];
+	
+	NSLog(@"localResults %@", localResults);
+	
+	return localResults;
 
 }
 
@@ -423,8 +438,9 @@ extern NSError * AFIncrementalStoreError (NSUInteger code, NSString *localizedDe
 			for (NSManagedObjectID *backingObjectID in backingObjectIDs) {
 				 NSManagedObject *backingObject = [backingContext objectWithID:backingObjectID];
 				 NSString *resourceID = [backingObject valueForKey:kAFIncrementalStoreResourceIdentifierAttributeName];
-				 
-				 [managedObjectIDs addObject:[self objectIDForEntity:fetchRequest.entity withResourceIdentifier:resourceID]];
+				 NSManagedObjectID *objectID = [self objectIDForEntity:fetchRequest.entity withResourceIdentifier:resourceID];
+				 NSCParameterAssert([objectID.entity isEqual:fetchRequest.entity]);
+				 [managedObjectIDs addObject:objectID];
 			}
 			
 			return managedObjectIDs;
@@ -588,7 +604,7 @@ extern NSError * AFIncrementalStoreError (NSUInteger code, NSString *localizedDe
     fetchRequest.fetchLimit = 1;
     fetchRequest.includesSubentities = NO;
     fetchRequest.propertiesToFetch = [[[NSEntityDescription entityForName:fetchRequest.entityName inManagedObjectContext:context] attributesByName] allKeys];
-    fetchRequest.predicate = [NSPredicate predicateWithFormat:@"%K = %@", kAFIncrementalStoreResourceIdentifierAttributeName, [self referenceObjectForObjectID:objectID]];
+    fetchRequest.predicate = [NSPredicate predicateWithFormat:@"%K = %@", kAFIncrementalStoreResourceIdentifierAttributeName, [self referenceObjectForObjectID:objectID].resourceIdentifier];
     
     NSArray *results = [[self backingManagedObjectContext] executeFetchRequest:fetchRequest error:error];
     NSDictionary *attributeValues = [results lastObject] ?: [NSDictionary dictionary];
@@ -668,8 +684,8 @@ extern NSError * AFIncrementalStoreError (NSUInteger code, NSString *localizedDe
                 }
                 
                 [childContext performBlock:^{
-                    NSManagedObject *managedObject = [childContext existingObjectWithID:[self objectIDForEntity:[objectID entity] withResourceIdentifier:[self referenceObjectForObjectID:objectID]] error:nil];
-                    NSManagedObject *backingObject = [backingContext existingObjectWithID:[self objectIDForBackingObjectForEntity:[objectID entity] withResourceIdentifier:[self referenceObjectForObjectID:objectID]] error:nil];
+                    NSManagedObject *managedObject = [childContext existingObjectWithID:[self objectIDForEntity:[objectID entity] withResourceIdentifier:[self referenceObjectForObjectID:objectID].resourceIdentifier] error:nil];
+                    NSManagedObject *backingObject = [backingContext existingObjectWithID:[self objectIDForBackingObjectForEntity:[objectID entity] withResourceIdentifier:[self referenceObjectForObjectID:objectID].resourceIdentifier] error:nil];
 
                     id mutableBackingRelationshipObjects = [relationship isOrdered] ? [NSMutableOrderedSet orderedSetWithCapacity:[representations count]] : [NSMutableSet setWithCapacity:[representations count]];
                     id mutableManagedRelationshipObjects = [relationship isOrdered] ? [NSMutableOrderedSet orderedSetWithCapacity:[representations count]] : [NSMutableSet setWithCapacity:[representations count]];
@@ -720,7 +736,7 @@ extern NSError * AFIncrementalStoreError (NSUInteger code, NSString *localizedDe
         }
     }
     
-    NSManagedObjectID *backingObjectID = [self objectIDForBackingObjectForEntity:[objectID entity] withResourceIdentifier:[self referenceObjectForObjectID:objectID]];
+    NSManagedObjectID *backingObjectID = [self objectIDForBackingObjectForEntity:[objectID entity] withResourceIdentifier:[self referenceObjectForObjectID:objectID].resourceIdentifier];
     NSManagedObject *backingObject = (backingObjectID == nil) ? nil : [[self backingManagedObjectContext] existingObjectWithID:backingObjectID error:nil];
     
     if (backingObject && ![backingObject hasChanges]) {
@@ -750,18 +766,50 @@ extern NSError * AFIncrementalStoreError (NSUInteger code, NSString *localizedDe
 
 #pragma mark - NSIncrementalStore
 
-- (void)managedObjectContextDidRegisterObjectsWithIDs:(NSArray *)objectIDs {
-    [super managedObjectContextDidRegisterObjectsWithIDs:objectIDs];
-    for (NSManagedObjectID *objectID in objectIDs) {
-        [_registeredObjectIDsByResourceIdentifier setObject:objectID forKey:[self referenceObjectForObjectID:objectID]];
-    }
+- (void) managedObjectContextDidRegisterObjectsWithIDs:(NSArray *)objectIDs {
+
+	[super managedObjectContextDidRegisterObjectsWithIDs:objectIDs];
+	
+	for (NSManagedObjectID *objectID in objectIDs) {
+		
+		AFIncrementalStoreReferenceObject *referenceObject = [self referenceObjectForObjectID:objectID];
+		
+		[_registeredObjectIDsByResourceIdentifier setObject:objectID forKey:referenceObject];
+		NSCParameterAssert([_registeredObjectIDsByResourceIdentifier objectForKey:referenceObject]);
+		
+	}
+
 }
 
-- (void)managedObjectContextDidUnregisterObjectsWithIDs:(NSArray *)objectIDs {
-    [super managedObjectContextDidUnregisterObjectsWithIDs:objectIDs];
-    for (NSManagedObjectID *objectID in objectIDs) {
-        [_registeredObjectIDsByResourceIdentifier removeObjectForKey:[self referenceObjectForObjectID:objectID]];
-    }    
+- (void) managedObjectContextDidUnregisterObjectsWithIDs:(NSArray *)objectIDs {
+
+	[super managedObjectContextDidUnregisterObjectsWithIDs:objectIDs];
+		
+	for (NSManagedObjectID *objectID in objectIDs) {
+		
+		AFIncrementalStoreReferenceObject *referenceObject = [self referenceObjectForObjectID:objectID];
+		
+		[_registeredObjectIDsByResourceIdentifier removeObjectForKey:referenceObject];
+		
+	}
+
+}
+
+- (NSManagedObjectID *) newObjectIDForEntity:(NSEntityDescription *)entity referenceObject:(AFIncrementalStoreReferenceObject *)data {
+
+	NSCParameterAssert([data isKindOfClass:[AFIncrementalStoreReferenceObject class]]);
+	
+	return [super newObjectIDForEntity:entity referenceObject:data];
+
+}
+
+- (AFIncrementalStoreReferenceObject *) referenceObjectForObjectID:(NSManagedObjectID *)objectID {
+
+	id object = [super referenceObjectForObjectID:objectID];
+	NSCParameterAssert(!object || [object isKindOfClass:[AFIncrementalStoreReferenceObject class]]);
+	
+	return object;
+
 }
 
 @end
