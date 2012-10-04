@@ -769,9 +769,9 @@ extern NSError * AFIncrementalStoreError (NSUInteger code, NSString *localizedDe
 	for (NSManagedObjectID *objectID in objectIDs) {
 		
 		AFIncrementalStoreReferenceObject *referenceObject = [self referenceObjectForObjectID:objectID];
+		NSCParameterAssert([referenceObject isKindOfClass:[AFIncrementalStoreReferenceObject class]]);
 		
 		[_registeredObjectIDsByResourceIdentifier setObject:objectID forKey:referenceObject];
-		NSCParameterAssert([_registeredObjectIDsByResourceIdentifier objectForKey:referenceObject]);
 		
 	}
 
@@ -783,9 +783,7 @@ extern NSError * AFIncrementalStoreError (NSUInteger code, NSString *localizedDe
 		
 	for (NSManagedObjectID *objectID in objectIDs) {
 		
-		AFIncrementalStoreReferenceObject *referenceObject = [self referenceObjectForObjectID:objectID];
-		
-		[_registeredObjectIDsByResourceIdentifier removeObjectForKey:referenceObject];
+		[_registeredObjectIDsByResourceIdentifier removeObjectsForKeys:[_registeredObjectIDsByResourceIdentifier allKeysForObject:objectID]];
 		
 	}
 
@@ -793,9 +791,18 @@ extern NSError * AFIncrementalStoreError (NSUInteger code, NSString *localizedDe
 
 - (NSManagedObjectID *) newObjectIDForEntity:(NSEntityDescription *)entity referenceObject:(AFIncrementalStoreReferenceObject *)data {
 
-	NSCParameterAssert([data isKindOfClass:[AFIncrementalStoreReferenceObject class]]);
+	if ([data isKindOfClass:[AFIncrementalStoreReferenceObject class]]) {
 	
-	return [super newObjectIDForEntity:entity referenceObject:data];
+		return [super newObjectIDForEntity:entity referenceObject:data];
+		
+	} else {
+	
+		AFIncrementalStoreReferenceObject *referneceObject = [AFIncrementalStoreReferenceObject objectWithEntity:entity resourceIdentifier:nil];
+		
+		return [super newObjectIDForEntity:entity referenceObject:referneceObject];
+		
+	}
+	
 
 }
 
