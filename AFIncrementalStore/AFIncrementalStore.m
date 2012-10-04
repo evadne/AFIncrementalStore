@@ -210,11 +210,7 @@ extern NSError * AFIncrementalStoreError (NSUInteger code, NSString *localizedDe
 		
 	}];
 	
-	id localResults = [self executeLocalFetchRequest:fetchRequest withContext:context error:error];
-	
-	NSLog(@"localResults %@", localResults);
-	
-	return localResults;
+	return [self executeLocalFetchRequest:fetchRequest withContext:context error:error];
 
 }
 
