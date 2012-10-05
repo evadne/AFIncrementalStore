@@ -659,7 +659,7 @@ extern NSError * AFIncrementalStoreError (NSUInteger code, NSString *localizedDe
         NSURLRequest *request = [self.HTTPClient requestWithMethod:@"GET" pathForRelationship:relationship forObjectWithID:objectID withContext:context];
         
         if ([request URL] && ![[context existingObjectWithID:objectID error:nil] hasChanges]) {
-            NSManagedObjectContext *childContext = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+            NSManagedObjectContext *childContext = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSMainQueueConcurrencyType];
             childContext.parentContext = context;
             childContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy;
 						
@@ -713,9 +713,11 @@ extern NSError * AFIncrementalStoreError (NSUInteger code, NSString *localizedDe
                         [managedObject setValue:[mutableManagedRelationshipObjects anyObject] forKey:relationship.name];
                         [backingObject setValue:[mutableBackingRelationshipObjects anyObject] forKey:relationship.name];
                     }
-                
+										                
                     if (![backingContext save:error] || ![childContext save:error]) {
+											if (error) {
                         NSLog(@"Error: %@", *error);
+											}
                     }
                     
                     [self notifyManagedObjectContext:context aboutRequestOperation:operation];
