@@ -21,6 +21,7 @@
 // THE SOFTWARE.
 
 #import "AFRESTClient.h"
+#import "AFIncrementalStoreReferenceObject.h"
 
 static NSString * AFPluralizedString(NSString *string) {
     if ([string hasSuffix:@"ss"] || [string hasSuffix:@"se"] || [string hasSuffix:@"sh"] || [string hasSuffix:@"ge"] || [string hasSuffix:@"ch"]) {
@@ -36,16 +37,15 @@ static NSString * AFPluralizedString(NSString *string) {
     return AFPluralizedString(entity.name);
 }
 
-- (NSString *)pathForObject:(NSManagedObject *)object {
-
-	id resourceIdentifier = [(NSIncrementalStore *)object.objectID.persistentStore referenceObjectForObjectID:object.objectID];
-		
-	if (![resourceIdentifier isKindOfClass:[NSString class]]) {
-		if ([resourceIdentifier respondsToSelector:@selector(stringValue)]) {
-			resourceIdentifier = [resourceIdentifier stringValue];
-		}
-	}
+- (NSString *) pathForObject:(NSManagedObject *)object {
 	
+	AFIncrementalStore *incrementalStore = (AFIncrementalStore *)object.objectID.persistentStore;
+	NSCParameterAssert([incrementalStore isKindOfClass:[AFIncrementalStore class]]);
+	
+	AFIncrementalStoreReferenceObject *referenceObject = (AFIncrementalStoreReferenceObject *)[incrementalStore referenceObjectForObjectID:object.objectID];
+	NSCParameterAssert([referenceObject isKindOfClass:[AFIncrementalStoreReferenceObject class]]);
+	
+	NSString *resourceIdentifier = referenceObject.resourceIdentifier;
 	NSCParameterAssert(!resourceIdentifier || [resourceIdentifier isKindOfClass:[NSString class]]);
 
 	return [[self pathForEntity:object.entity] stringByAppendingPathComponent:[resourceIdentifier lastPathComponent]];
