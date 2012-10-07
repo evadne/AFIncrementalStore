@@ -7,7 +7,7 @@
 @implementation AFIncrementalStore (Importing)
 
 - (NSManagedObject *) insertOrUpdateObjectWithEntity:(NSEntityDescription *)entity attributes:(NSDictionary *)attributes resourceIdentifier:(NSString *)resourceIdentifier inContext:(NSManagedObjectContext *)context {
-
+	
 	NSManagedObjectID *objectID;
 	NSPersistentStoreCoordinator *psc = context.persistentStoreCoordinator;
 	
@@ -24,12 +24,21 @@
 	NSManagedObject *object = nil;
 	
 	if (objectID) {
+		
+		__block NSManagedObject *blockObject = nil;
 	
-		NSError *error = nil;
-		if (!(object = [context existingObjectWithID:objectID error:&error])) {
-			NSCAssert2(NO, @"%s: Object ID exists, but object is not found: %@", __PRETTY_FUNCTION__, error);
-		}
-	
+		[context performBlockAndWait:^{
+			
+			NSError *error = nil;
+			if (!(blockObject = [context existingObjectWithID:objectID error:&error])) {
+				NSCAssert2(NO, @"%s: Object ID exists, but object is not found: %@", __PRETTY_FUNCTION__, error);
+			}
+		
+		}];
+		
+		object = blockObject;
+		blockObject = nil;
+		
 	}
 	
 	if (!object) {
@@ -45,14 +54,20 @@
 		
 		object = [(NSManagedObject *)[class alloc] initWithEntity:instantiatedEntity insertIntoManagedObjectContext:context];
 		NSCParameterAssert(object);
-		
+	
+	}
+
+#if 0
+	
+	//	Not sure if obtaining permament IDs is very important
+	
+	if (!object.objectID || [object.objectID isTemporaryID]) {
+		NSError *error = nil;
+		BOOL didObtainPermanentID = [object.managedObjectContext obtainPermanentIDsForObjects:@[ object ] error:&error];
+		NSCAssert2(didObtainPermanentID, @"%s: Did not obtain permanent ID for object %@", __PRETTY_FUNCTION__, object);
 	}
 	
-	//	if (!object.objectID || [object.objectID isTemporaryID]) {
-	//		NSError *error = nil;
-	//		BOOL didObtainPermanentID = [object.managedObjectContext obtainPermanentIDsForObjects:@[ object ] error:&error];
-	//		NSCAssert2(didObtainPermanentID, @"%s: Did not obtain permanent ID for object %@", __PRETTY_FUNCTION__, object);
-	//	}
+#endif
 	
 	[object setValuesForKeysWithDictionary:attributes];
 
@@ -68,8 +83,14 @@
 
 	NSManagedObject * (^insertedManagedObject)(NSEntityDescription *, NSString *, NSDictionary *) = ^ (NSEntityDescription *entity, NSString *resourceIdentifier, NSDictionary *attributes) {
 	
-		NSManagedObject *object = [self insertOrUpdateObjectWithEntity:entity attributes:attributes resourceIdentifier:resourceIdentifier inContext:childContext];
+		__block NSManagedObject *object = nil;
+		
+		[childContext performBlockAndWait:^{
+			
+			object = [self insertOrUpdateObjectWithEntity:entity attributes:attributes resourceIdentifier:resourceIdentifier inContext:childContext];
 
+		}];
+		
 		return object;
 		
 	};

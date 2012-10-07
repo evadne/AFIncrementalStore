@@ -2,6 +2,7 @@
 
 #import "AFIncrementalStoreReferenceObject.h"
 #import "AFIncrementalStore+BackingStore.h"
+#import "AFIncrementalStore+Concurrency.h"
 #import "AFIncrementalStore+ObjectIDs.h"
 #import "AFIncrementalStore+Notifications.h"
 #import "AFIncrementalStore+Relationships.h"
@@ -10,19 +11,13 @@
 
 - (id) newValueForRelationship:(NSRelationshipDescription *)relationship forObjectWithID:(NSManagedObjectID *)objectID withContext:(NSManagedObjectContext *)context error:(NSError *__autoreleasing *)error {
 
-    if ([self.HTTPClient respondsToSelector:@selector(shouldFetchRemoteValuesForRelationship:forObjectWithID:inManagedObjectContext:)] && [self.HTTPClient shouldFetchRemoteValuesForRelationship:relationship forObjectWithID:objectID inManagedObjectContext:context]) {
-        NSURLRequest *request = [self.HTTPClient requestWithMethod:@"GET" pathForRelationship:relationship forObjectWithID:objectID withContext:context];
+    if ([self shouldFetchRemoteValuesForRelationship:relationship forObjectWithID:objectID inManagedObjectContext:context]) {
+      
+				NSURLRequest *request = [self.HTTPClient requestWithMethod:@"GET" pathForRelationship:relationship forObjectWithID:objectID withContext:context];
         
         if ([request URL] && ![[context existingObjectWithID:objectID error:nil] hasChanges]) {
-            NSManagedObjectContext *childContext = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSMainQueueConcurrencyType];
-            childContext.parentContext = context;
-            childContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy;
 						
             NSManagedObjectContext *backingContext = [self backingManagedObjectContext];
-            
-            [[NSNotificationCenter defaultCenter] addObserverForName:NSManagedObjectContextDidSaveNotification object:childContext queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
-                [context mergeChangesFromContextDidSaveNotification:note];
-            }];
             
             AFHTTPRequestOperation *operation = [self.HTTPClient HTTPRequestOperationWithRequest:request success:^(AFHTTPRequestOperation *operation, id responseObject) {
                 id representationOrArrayOfRepresentations = [self.HTTPClient representationOrArrayOfRepresentationsFromResponseObject:responseObject];
@@ -33,8 +28,13 @@
                 } else {
                     representations = [NSArray arrayWithObject:representationOrArrayOfRepresentations];
                 }
-                
-                [childContext performBlock:^{
+              
+								NSManagedObjectContext *childContext = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+								childContext.parentContext = context;
+								childContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy;
+								
+                [self performBlock:^{
+								
                     NSManagedObject *managedObject = [childContext existingObjectWithID:[self objectIDForEntity:[objectID entity] withResourceIdentifier:[self referenceObjectForObjectID:objectID].resourceIdentifier] error:nil];
                     NSManagedObject *backingObject = [backingContext existingObjectWithID:[self objectIDForBackingObjectForEntity:[objectID entity] withResourceIdentifier:[self referenceObjectForObjectID:objectID].resourceIdentifier] error:nil];
 
@@ -68,12 +68,43 @@
                         [managedObject setValue:[mutableManagedRelationshipObjects anyObject] forKey:relationship.name];
                         [backingObject setValue:[mutableBackingRelationshipObjects anyObject] forKey:relationship.name];
                     }
-										                
-                    if (![backingContext save:error] || ![childContext save:error]) {
+										
+										//	Forcibly merge the changes from saving the child context
+										//	so the changes are propagated correctly
+										
+										NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
+										NSOperationQueue *queue = [NSOperationQueue mainQueue];
+										__block BOOL savedFromNotification = NO;
+										
+										id observer = [nc addObserverForName:NSManagedObjectContextDidSaveNotification object:childContext queue:queue usingBlock:^(NSNotification *note) {
+										
+											[context mergeChangesFromContextDidSaveNotification:note];
+											
+											savedFromNotification = YES;
+											
+										}];
+										
+										__block NSError *backingContextSavingError = nil;
+										__block BOOL backingContextDidSave = NO;
+										[backingContext performBlockAndWait:^{
+											backingContextDidSave = [backingContext save:&backingContextSavingError];
+										}];
+										
+										__block NSError *childContextSavingError = nil;
+										__block BOOL childContextDidSave = NO;
+//										[childContext performBlockAndWait:^{
+											childContextDidSave = [childContext save:&childContextSavingError];
+//										}];
+										        
+                    if (!backingContextDidSave || !childContextDidSave) {
 											if (error) {
-                        NSLog(@"Error: %@", *error);
+                        NSLog(@"Error Saving: %@; %@", backingContextSavingError, childContextSavingError);
+											} else {
+												NSCParameterAssert(savedFromNotification);
 											}
                     }
+										
+										[nc removeObserver:observer];
                     
                     [self notifyManagedObjectContext:context aboutRequestOperation:operation];
                 }];
@@ -115,6 +146,36 @@
             return [NSNull null];
         }
     }
+}
+
+- (BOOL) shouldFetchRemoteValuesForRelationship:(NSRelationshipDescription *)relationship forObjectWithID:(NSManagedObjectID *)objectID inManagedObjectContext:(NSManagedObjectContext *)context {
+
+	AFHTTPClient<AFIncrementalStoreHTTPClient> *httpClient = self.HTTPClient;
+	
+	if ([httpClient respondsToSelector:@selector(shouldFetchRemoteValuesForRelationship:forObjectWithID:inManagedObjectContext:)]) {
+	
+		return [httpClient shouldFetchRemoteValuesForRelationship:relationship forObjectWithID:objectID inManagedObjectContext:context];
+	
+	}
+	
+	return NO;
+	
+}
+
+- (void) fetchRemoteValueForRelationship:(NSRelationshipDescription *)relationship forObjectWithID:(NSManagedObjectID *)objectID withContext:(NSManagedObjectContext *)context completion:(void(^)(void))block {
+
+	//	Fire remote call
+
+}
+
+- (void) handleRemoteValueForRelationship:(NSRelationshipDescription *)relationship forObjectWithID:(NSManagedObjectID *)objectID finishedLoadingWithResponse:(NSHTTPURLResponse *)response savingIntoContext:(NSManagedObjectContext *)context completion:(void(^)(void))block {
+
+}
+
+- (id) fetchLocalValueForRelationship:(NSRelationshipDescription *)relationship forObjectWithID:(NSManagedObjectID *)objectID withContext:(NSManagedObjectContext *)context error:(NSError * __autoreleasing *)error {
+
+	return nil;
+
 }
 
 @end

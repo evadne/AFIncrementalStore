@@ -1,6 +1,7 @@
 //  AFIncrementalStore+Faulting.m
 
 #import "AFIncrementalStore+BackingStore.h"
+#import "AFIncrementalStore+Concurrency.h"
 #import "AFIncrementalStore+Faulting.h"
 #import "AFIncrementalStore+Notifications.h"
 #import "AFIncrementalStore+ObjectIDs.h"
@@ -9,18 +10,21 @@
 @implementation AFIncrementalStore (Faulting)
 
 - (NSIncrementalStoreNode *) newValuesForObjectWithID:(NSManagedObjectID *)objectID withContext:(NSManagedObjectContext *)context error:(NSError *__autoreleasing *)error {
+	
+	NSEntityDescription *entity = objectID.entity;
+	NSFetchRequest *fetchRequest = [NSFetchRequest fetchRequestWithEntityName:entity.name];
+	fetchRequest.resultType = NSDictionaryResultType;
+	fetchRequest.fetchLimit = 1;
+	fetchRequest.includesSubentities = NO;
+	fetchRequest.propertiesToFetch = [[entity attributesByName] allKeys];
+	fetchRequest.predicate = [NSPredicate predicateWithFormat:@"%K = %@", AFIncrementalStoreResourceIdentifierAttributeName, [self referenceObjectForObjectID:objectID].resourceIdentifier];
+		
+	NSManagedObjectContext *backingContext = [self backingManagedObjectContext];
+	NSArray *results = [backingContext executeFetchRequest:fetchRequest error:error];
+	
+	NSDictionary *attributeValues = [results lastObject] ?: [NSDictionary dictionary];
 
-    NSFetchRequest *fetchRequest = [[NSFetchRequest alloc] initWithEntityName:[[objectID entity] name]];
-    fetchRequest.resultType = NSDictionaryResultType;
-    fetchRequest.fetchLimit = 1;
-    fetchRequest.includesSubentities = NO;
-    fetchRequest.propertiesToFetch = [[[NSEntityDescription entityForName:fetchRequest.entityName inManagedObjectContext:context] attributesByName] allKeys];
-    fetchRequest.predicate = [NSPredicate predicateWithFormat:@"%K = %@", AFIncrementalStoreResourceIdentifierAttributeName, [self referenceObjectForObjectID:objectID].resourceIdentifier];
-    
-    NSArray *results = [[self backingManagedObjectContext] executeFetchRequest:fetchRequest error:error];
-    NSDictionary *attributeValues = [results lastObject] ?: [NSDictionary dictionary];
-
-    NSIncrementalStoreNode *node = [[NSIncrementalStoreNode alloc] initWithObjectID:objectID withValues:attributeValues version:1];
+	NSIncrementalStoreNode *node = [[NSIncrementalStoreNode alloc] initWithObjectID:objectID withValues:attributeValues version:1];
     
     if ([self.HTTPClient respondsToSelector:@selector(shouldFetchRemoteAttributeValuesForObjectWithID:inManagedObjectContext:)] && [self.HTTPClient shouldFetchRemoteAttributeValuesForObjectWithID:objectID inManagedObjectContext:context]) {
         if (attributeValues) {

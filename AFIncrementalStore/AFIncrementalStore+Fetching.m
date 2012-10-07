@@ -1,6 +1,7 @@
 //  AFIncrementalStore+Fetching.m
 
 #import "AFIncrementalStore+BackingStore.h"
+#import "AFIncrementalStore+Concurrency.h"
 #import "AFIncrementalStore+Fetching.h"
 #import "AFIncrementalStore+Importing.h"
 #import "AFIncrementalStore+Notifications.h"
@@ -58,10 +59,11 @@
 
 - (void) handleRemoteFetchRequest:(NSFetchRequest *)fetchRequest finishedWithResponse:(NSHTTPURLResponse *)response savingIntoContext:(NSManagedObjectContext *)context completion:(void(^)(void))block {
 
-	NSManagedObjectContext *childContext = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSMainQueueConcurrencyType];
+	NSManagedObjectContext *childContext = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
 	childContext.parentContext = context;
 	childContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy;
-	[childContext performBlock:^{
+	
+	[self performBlock:^{
 		
 		NSManagedObjectContext *backingContext = [self backingManagedObjectContext];
 		NSEntityDescription *entity = fetchRequest.entity;
@@ -70,13 +72,24 @@
 			[self importRepresentation:representation ofEntity:entity withResponse:response context:childContext asManagedObject:nil backingObject:nil];				
 		}
 		
-		NSError *error = nil;
-		if (![backingContext save:&error] || ![childContext save:&error]) {
-			NSLog(@"Error: %@", error);
+		__block BOOL backingContextDidSave = NO;
+		__block NSError *backingContextSavingError = nil;
+		[backingContext performBlockAndWait:^{
+			backingContextDidSave = [backingContext save:&backingContextSavingError];
+		}];
+		
+		__block BOOL childContextDidSave = NO;
+		__block NSError *childContextSavingError = nil;
+		[childContext performBlockAndWait:^{
+			childContextDidSave = [childContext save:&childContextSavingError];
+		}];
+		
+		if (!backingContextDidSave || !childContextDidSave) {
+			NSLog(@"Error: %@, %@", backingContextSavingError, childContextSavingError);
 		}
 		
 		if (block)
-			block();
+			dispatch_async(dispatch_get_main_queue(), block);
 		
 	}];
 
@@ -112,7 +125,11 @@
 		
 		case NSManagedObjectIDResultType: {
 		
-			NSArray *backingObjectIDs = [backingContext executeFetchRequest:fetchRequest error:error];
+			__block NSArray *backingObjectIDs = nil;
+			[backingContext performBlockAndWait:^{
+				backingObjectIDs = [backingContext executeFetchRequest:fetchRequest error:error];
+			}];
+		
 			NSMutableArray *managedObjectIDs = [NSMutableArray arrayWithCapacity:[backingObjectIDs count]];
 			
 			for (NSManagedObjectID *backingObjectID in backingObjectIDs) {
