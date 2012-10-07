@@ -115,8 +115,11 @@
 	[super managedObjectContextDidUnregisterObjectsWithIDs:objectIDs];
 		
 	for (NSManagedObjectID *objectID in objectIDs) {
-		
-		[_registeredObjectIDsByResourceIdentifier removeObjectsForKeys:[_registeredObjectIDsByResourceIdentifier allKeysForObject:objectID]];
+	
+		id key = [self referenceObjectForObjectID:objectID];
+		if (key) {
+			[_registeredObjectIDsByResourceIdentifier removeObjectsForKeys:@[ key ]];
+		}
 		
 	}
 
