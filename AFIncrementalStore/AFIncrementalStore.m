@@ -85,6 +85,17 @@ extern NSError * AFIncrementalStoreError (NSUInteger code, NSString *localizedDe
              aboutRequestOperation:(AFHTTPRequestOperation *)operation
          forPersistentStoreRequest:(NSPersistentStoreRequest *)request
 {
+
+    if (![NSThread isMainThread]) {
+
+        dispatch_sync(dispatch_get_main_queue(), ^{
+
+            [self notifyManagedObjectContext:context aboutRequestOperation:operation forPersistentStoreRequest:request];
+
+        });
+
+    }
+
     NSString *notificationName = [operation isFinished] ? AFIncrementalStoreContextDidFetchRemoteValues : AFIncrementalStoreContextWillFetchRemoteValues;
     
     NSMutableDictionary *userInfo = [NSMutableDictionary dictionary];
