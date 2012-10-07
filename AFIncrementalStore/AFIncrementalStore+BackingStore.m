@@ -48,7 +48,7 @@
 	
 	if (!_backingManagedObjectContext) {
 	
-		_backingManagedObjectContext = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSMainQueueConcurrencyType];
+		_backingManagedObjectContext = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
 		_backingManagedObjectContext.persistentStoreCoordinator = self.backingPersistentStoreCoordinator;
 		_backingManagedObjectContext.retainsRegisteredObjects = YES;
 		
