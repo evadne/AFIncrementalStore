@@ -8,7 +8,19 @@
 
 - (NSManagedObject *) insertOrUpdateObjectWithEntity:(NSEntityDescription *)entity attributes:(NSDictionary *)attributes resourceIdentifier:(NSString *)resourceIdentifier inContext:(NSManagedObjectContext *)context {
 
-	NSManagedObjectID *objectID = [self objectIDForEntity:entity withResourceIdentifier:resourceIdentifier];
+	NSManagedObjectID *objectID;
+	NSPersistentStoreCoordinator *psc = context.persistentStoreCoordinator;
+	
+	if (psc == self.persistentStoreCoordinator) {
+	
+		objectID = [self objectIDForEntity:entity withResourceIdentifier:resourceIdentifier];
+	
+	} else if (psc == self.backingPersistentStoreCoordinator) {
+	
+		objectID = [self objectIDForBackingObjectForEntity:entity withResourceIdentifier:resourceIdentifier];
+	
+	}
+	
 	NSManagedObject *object = nil;
 	
 	if (objectID) {
@@ -21,11 +33,26 @@
 	}
 	
 	if (!object) {
+		
+		//	Find the corresponding entity because in some cases the object needs
+		//	to be instantiated as a backing entity instance with the same
+		//	entity name.
 	
-		object = [(NSManagedObject *)[NSClassFromString([entity managedObjectClassName]) alloc] initWithEntity:entity insertIntoManagedObjectContext:context];
+		NSManagedObjectModel *model = psc.managedObjectModel;
+		NSDictionary *allEntities = model.entitiesByName;
+		NSEntityDescription *instantiatedEntity = [allEntities objectForKey:entity.name];
+		Class class = NSClassFromString([instantiatedEntity managedObjectClassName]);
+		
+		object = [(NSManagedObject *)[class alloc] initWithEntity:instantiatedEntity insertIntoManagedObjectContext:context];
 		NSCParameterAssert(object);
 		
 	}
+	
+	//	if (!object.objectID || [object.objectID isTemporaryID]) {
+	//		NSError *error = nil;
+	//		BOOL didObtainPermanentID = [object.managedObjectContext obtainPermanentIDsForObjects:@[ object ] error:&error];
+	//		NSCAssert2(didObtainPermanentID, @"%s: Did not obtain permanent ID for object %@", __PRETTY_FUNCTION__, object);
+	//	}
 	
 	[object setValuesForKeysWithDictionary:attributes];
 
