@@ -47,6 +47,7 @@
 		NSPersistentStoreCoordinator *_backingPersistentStoreCoordinator;
 		NSManagedObjectContext *_backingManagedObjectContext;
 		NSMutableDictionary *_registeredObjectIDsByResourceIdentifier;
+		NSOperationQueue *_operationQueue;
 }
 
 ///---------------------------------------------
