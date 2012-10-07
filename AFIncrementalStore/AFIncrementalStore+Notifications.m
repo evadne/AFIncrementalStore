@@ -13,12 +13,14 @@
 - (void) notifyManagedObjectContext:(NSManagedObjectContext *)context aboutRequestOperation:(AFHTTPRequestOperation *)operation forPersistentStoreRequest:(NSPersistentStoreRequest *)request {
 
 	if (![NSThread isMainThread]) {
-
-			dispatch_sync(dispatch_get_main_queue(), ^{
+	
+			dispatch_async(dispatch_get_main_queue(), ^{
 
 					[self notifyManagedObjectContext:context aboutRequestOperation:operation forPersistentStoreRequest:request];
 
 			});
+			
+			return;
 
 	}
 
