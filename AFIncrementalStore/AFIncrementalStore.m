@@ -225,6 +225,33 @@ extern NSError * AFIncrementalStoreError (NSUInteger code, NSString *localizedDe
 
 }
 
+- (NSManagedObject *) insertOrUpdateObjectWithEntity:(NSEntityDescription *)entity attributes:(NSDictionary *)attributes resourceIdentifier:(NSString *)resourceIdentifier inContext:(NSManagedObjectContext *)context {
+
+	NSManagedObjectID *objectID = [self objectIDForEntity:entity withResourceIdentifier:resourceIdentifier];
+	NSManagedObject *object = nil;
+	
+	if (objectID) {
+	
+		NSError *error = nil;
+		if (!(object = [context existingObjectWithID:objectID error:&error])) {
+			NSLog(@"%s: Object ID exists, but object is not found: %@", __PRETTY_FUNCTION__, error);
+		}
+	
+	}
+	
+	if (!object) {
+	
+		object = [(NSManagedObject *)[NSClassFromString([entity managedObjectClassName]) alloc] initWithEntity:entity insertIntoManagedObjectContext:context];
+		NSCParameterAssert(object);
+		
+	}
+	
+	[object setValuesForKeysWithDictionary:attributes];
+
+	return object;
+
+}
+
 - (void) importRepresentation:(NSDictionary *)representation ofEntity:(NSEntityDescription *)entity withResponse:(NSHTTPURLResponse *)response context:(NSManagedObjectContext *)childContext asManagedObject:(NSManagedObject **)outManagedObject backingObject:(NSManagedObject **)outBackingObject {
 
 	__weak AFIncrementalStore *wSelf = self;
@@ -232,30 +259,18 @@ extern NSError * AFIncrementalStoreError (NSUInteger code, NSString *localizedDe
 	
 	NSManagedObjectContext *backingContext = [self backingManagedObjectContext];
 
-	NSManagedObject * (^insertedObject)(NSManagedObjectContext *, NSEntityDescription *, NSString *, NSDictionary *) = ^ (NSManagedObjectContext *context, NSEntityDescription *entity, NSString *resourceIdentifier, NSDictionary *attributes) {
-
-		NSManagedObjectID *objectID = [wSelf objectIDForBackingObjectForEntity:entity withResourceIdentifier:resourceIdentifier];
-		NSManagedObject *object = objectID ?
-			[context existingObjectWithID:objectID error:nil] :
-			[NSEntityDescription insertNewObjectForEntityForName:entity.name inManagedObjectContext:context];
-		
-		[object setValuesForKeysWithDictionary:attributes];
-
-		return object;
-
-	};
-
 	NSManagedObject * (^insertedManagedObject)(NSEntityDescription *, NSString *, NSDictionary *) = ^ (NSEntityDescription *entity, NSString *resourceIdentifier, NSDictionary *attributes) {
+	
+		NSManagedObject *object = [self insertOrUpdateObjectWithEntity:entity attributes:attributes resourceIdentifier:resourceIdentifier inContext:childContext];
 
-		NSManagedObject *object = insertedObject(childContext, entity, resourceIdentifier, attributes);
-		
 		return object;
 		
 	};
 
 	NSManagedObject * (^insertedBackingObject)(NSEntityDescription *, NSString *, NSDictionary *) = ^ (NSEntityDescription *entity, NSString *resourceIdentifier, NSDictionary *attributes) {
 
-		NSManagedObject *object = insertedObject(backingContext, entity, resourceIdentifier, attributes);
+		NSManagedObject *object = [self insertOrUpdateObjectWithEntity:entity attributes:attributes resourceIdentifier:resourceIdentifier inContext:backingContext];
+		
 		[object setValue:resourceIdentifier forKey:kAFIncrementalStoreResourceIdentifierAttributeName];
 		
 		return object;
