@@ -48,6 +48,7 @@
 		NSManagedObjectContext *_backingManagedObjectContext;
 		NSMutableDictionary *_registeredObjectIDsByResourceIdentifier;
 		NSOperationQueue *_operationQueue;
+		AFHTTPClient<AFIncrementalStoreHTTPClient> *_HTTPClient;
 }
 
 ///---------------------------------------------
