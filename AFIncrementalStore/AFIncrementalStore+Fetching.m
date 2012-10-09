@@ -68,8 +68,12 @@
 		NSManagedObjectContext *backingContext = [self backingManagedObjectContext];
 		NSEntityDescription *entity = fetchRequest.entity;
 		NSArray *representations = [self representationsFromResponse:response];
+		
+		NSManagedObject *managedObject = nil;
+		NSManagedObject *backingObject = nil;
+		
 		for (NSDictionary *representation in representations) {
-			[self importRepresentation:representation ofEntity:entity withResponse:response context:childContext asManagedObject:nil backingObject:nil];				
+			[self importRepresentation:representation ofEntity:entity withResponse:response context:childContext asManagedObject:&managedObject backingObject:&backingObject];
 		}
 		
 		__block BOOL backingContextDidSave = NO;

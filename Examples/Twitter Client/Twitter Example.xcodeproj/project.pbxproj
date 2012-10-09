@@ -26,14 +26,25 @@
 		F8AD92DF15D9A0B400402FE9 /* AFURLConnectionOperation.m in Sources */ = {isa = PBXBuildFile; fileRef = F8AD92D315D9A0B400402FE9 /* AFURLConnectionOperation.m */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
 		F8AD92E015D9A0B400402FE9 /* AFXMLRequestOperation.m in Sources */ = {isa = PBXBuildFile; fileRef = F8AD92D515D9A0B400402FE9 /* AFXMLRequestOperation.m */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
 		F8AD92E115D9A0B400402FE9 /* UIImageView+AFNetworking.m in Sources */ = {isa = PBXBuildFile; fileRef = F8AD92D715D9A0B400402FE9 /* UIImageView+AFNetworking.m */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
-		F8AD92E715D9A0BB00402FE9 /* AFIncrementalStore.m in Sources */ = {isa = PBXBuildFile; fileRef = F8AD92E415D9A0BB00402FE9 /* AFIncrementalStore.m */; };
-		F8AD92E815D9A0BB00402FE9 /* AFRESTClient.m in Sources */ = {isa = PBXBuildFile; fileRef = F8AD92E615D9A0BB00402FE9 /* AFRESTClient.m */; };
 		F8AD92F815D9A2DB00402FE9 /* Tweet.m in Sources */ = {isa = PBXBuildFile; fileRef = F8AD92F715D9A2DB00402FE9 /* Tweet.m */; };
 		F8AD92FB15D9A2E500402FE9 /* User.m in Sources */ = {isa = PBXBuildFile; fileRef = F8AD92FA15D9A2E500402FE9 /* User.m */; };
 		F8AFAFB215AB4F28003FE5BB /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F8AFAFB115AB4F28003FE5BB /* UIKit.framework */; };
 		F8AFAFB415AB4F28003FE5BB /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F8AFAFB315AB4F28003FE5BB /* Foundation.framework */; };
 		F8AFAFB615AB4F28003FE5BB /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F8AFAFB515AB4F28003FE5BB /* CoreGraphics.framework */; };
 		F8AFAFB815AB4F28003FE5BB /* CoreData.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F8AFAFB715AB4F28003FE5BB /* CoreData.framework */; };
+		FFF651C6162411EC003191EC /* AFIncrementalStore.m in Sources */ = {isa = PBXBuildFile; fileRef = FFF651AC162411EC003191EC /* AFIncrementalStore.m */; };
+		FFF651C7162411EC003191EC /* AFIncrementalStore+BackingStore.m in Sources */ = {isa = PBXBuildFile; fileRef = FFF651AE162411EC003191EC /* AFIncrementalStore+BackingStore.m */; };
+		FFF651C8162411EC003191EC /* AFIncrementalStore+Concurrency.m in Sources */ = {isa = PBXBuildFile; fileRef = FFF651B0162411EC003191EC /* AFIncrementalStore+Concurrency.m */; };
+		FFF651C9162411EC003191EC /* AFIncrementalStore+Faulting.m in Sources */ = {isa = PBXBuildFile; fileRef = FFF651B2162411EC003191EC /* AFIncrementalStore+Faulting.m */; };
+		FFF651CA162411EC003191EC /* AFIncrementalStore+Fetching.m in Sources */ = {isa = PBXBuildFile; fileRef = FFF651B4162411EC003191EC /* AFIncrementalStore+Fetching.m */; };
+		FFF651CB162411EC003191EC /* AFIncrementalStore+Importing.m in Sources */ = {isa = PBXBuildFile; fileRef = FFF651B6162411EC003191EC /* AFIncrementalStore+Importing.m */; };
+		FFF651CC162411EC003191EC /* AFIncrementalStore+Notifications.m in Sources */ = {isa = PBXBuildFile; fileRef = FFF651B8162411EC003191EC /* AFIncrementalStore+Notifications.m */; };
+		FFF651CD162411EC003191EC /* AFIncrementalStore+ObjectIDs.m in Sources */ = {isa = PBXBuildFile; fileRef = FFF651BA162411EC003191EC /* AFIncrementalStore+ObjectIDs.m */; };
+		FFF651CE162411EC003191EC /* AFIncrementalStore+Relationships.m in Sources */ = {isa = PBXBuildFile; fileRef = FFF651BC162411EC003191EC /* AFIncrementalStore+Relationships.m */; };
+		FFF651CF162411EC003191EC /* AFIncrementalStore+Saving.m in Sources */ = {isa = PBXBuildFile; fileRef = FFF651BE162411EC003191EC /* AFIncrementalStore+Saving.m */; };
+		FFF651D0162411EC003191EC /* AFIncrementalStoreConstants.m in Sources */ = {isa = PBXBuildFile; fileRef = FFF651C0162411EC003191EC /* AFIncrementalStoreConstants.m */; };
+		FFF651D1162411EC003191EC /* AFIncrementalStoreReferenceObject.m in Sources */ = {isa = PBXBuildFile; fileRef = FFF651C3162411EC003191EC /* AFIncrementalStoreReferenceObject.m */; };
+		FFF651D2162411EC003191EC /* AFRESTClient.m in Sources */ = {isa = PBXBuildFile; fileRef = FFF651C5162411EC003191EC /* AFRESTClient.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -74,10 +85,6 @@
 		F8AD92D515D9A0B400402FE9 /* AFXMLRequestOperation.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = AFXMLRequestOperation.m; sourceTree = "<group>"; };
 		F8AD92D615D9A0B400402FE9 /* UIImageView+AFNetworking.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "UIImageView+AFNetworking.h"; sourceTree = "<group>"; };
 		F8AD92D715D9A0B400402FE9 /* UIImageView+AFNetworking.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = "UIImageView+AFNetworking.m"; sourceTree = "<group>"; };
-		F8AD92E315D9A0BB00402FE9 /* AFIncrementalStore.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AFIncrementalStore.h; sourceTree = "<group>"; };
-		F8AD92E415D9A0BB00402FE9 /* AFIncrementalStore.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = AFIncrementalStore.m; sourceTree = "<group>"; };
-		F8AD92E515D9A0BB00402FE9 /* AFRESTClient.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AFRESTClient.h; sourceTree = "<group>"; };
-		F8AD92E615D9A0BB00402FE9 /* AFRESTClient.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = AFRESTClient.m; sourceTree = "<group>"; };
 		F8AD92F615D9A2DB00402FE9 /* Tweet.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = Tweet.h; path = Classes/Tweet.h; sourceTree = SOURCE_ROOT; };
 		F8AD92F715D9A2DB00402FE9 /* Tweet.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = Tweet.m; path = Classes/Tweet.m; sourceTree = SOURCE_ROOT; };
 		F8AD92F915D9A2E500402FE9 /* User.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = User.h; path = Classes/User.h; sourceTree = SOURCE_ROOT; };
@@ -87,6 +94,33 @@
 		F8AFAFB315AB4F28003FE5BB /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
 		F8AFAFB515AB4F28003FE5BB /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
 		F8AFAFB715AB4F28003FE5BB /* CoreData.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreData.framework; path = System/Library/Frameworks/CoreData.framework; sourceTree = SDKROOT; };
+		FFF651AB162411EC003191EC /* AFIncrementalStore.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AFIncrementalStore.h; sourceTree = "<group>"; };
+		FFF651AC162411EC003191EC /* AFIncrementalStore.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = AFIncrementalStore.m; sourceTree = "<group>"; };
+		FFF651AD162411EC003191EC /* AFIncrementalStore+BackingStore.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "AFIncrementalStore+BackingStore.h"; sourceTree = "<group>"; };
+		FFF651AE162411EC003191EC /* AFIncrementalStore+BackingStore.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = "AFIncrementalStore+BackingStore.m"; sourceTree = "<group>"; };
+		FFF651AF162411EC003191EC /* AFIncrementalStore+Concurrency.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "AFIncrementalStore+Concurrency.h"; sourceTree = "<group>"; };
+		FFF651B0162411EC003191EC /* AFIncrementalStore+Concurrency.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = "AFIncrementalStore+Concurrency.m"; sourceTree = "<group>"; };
+		FFF651B1162411EC003191EC /* AFIncrementalStore+Faulting.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "AFIncrementalStore+Faulting.h"; sourceTree = "<group>"; };
+		FFF651B2162411EC003191EC /* AFIncrementalStore+Faulting.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = "AFIncrementalStore+Faulting.m"; sourceTree = "<group>"; };
+		FFF651B3162411EC003191EC /* AFIncrementalStore+Fetching.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "AFIncrementalStore+Fetching.h"; sourceTree = "<group>"; };
+		FFF651B4162411EC003191EC /* AFIncrementalStore+Fetching.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = "AFIncrementalStore+Fetching.m"; sourceTree = "<group>"; };
+		FFF651B5162411EC003191EC /* AFIncrementalStore+Importing.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "AFIncrementalStore+Importing.h"; sourceTree = "<group>"; };
+		FFF651B6162411EC003191EC /* AFIncrementalStore+Importing.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = "AFIncrementalStore+Importing.m"; sourceTree = "<group>"; };
+		FFF651B7162411EC003191EC /* AFIncrementalStore+Notifications.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "AFIncrementalStore+Notifications.h"; sourceTree = "<group>"; };
+		FFF651B8162411EC003191EC /* AFIncrementalStore+Notifications.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = "AFIncrementalStore+Notifications.m"; sourceTree = "<group>"; };
+		FFF651B9162411EC003191EC /* AFIncrementalStore+ObjectIDs.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "AFIncrementalStore+ObjectIDs.h"; sourceTree = "<group>"; };
+		FFF651BA162411EC003191EC /* AFIncrementalStore+ObjectIDs.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = "AFIncrementalStore+ObjectIDs.m"; sourceTree = "<group>"; };
+		FFF651BB162411EC003191EC /* AFIncrementalStore+Relationships.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "AFIncrementalStore+Relationships.h"; sourceTree = "<group>"; };
+		FFF651BC162411EC003191EC /* AFIncrementalStore+Relationships.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = "AFIncrementalStore+Relationships.m"; sourceTree = "<group>"; };
+		FFF651BD162411EC003191EC /* AFIncrementalStore+Saving.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "AFIncrementalStore+Saving.h"; sourceTree = "<group>"; };
+		FFF651BE162411EC003191EC /* AFIncrementalStore+Saving.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = "AFIncrementalStore+Saving.m"; sourceTree = "<group>"; };
+		FFF651BF162411EC003191EC /* AFIncrementalStoreConstants.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AFIncrementalStoreConstants.h; sourceTree = "<group>"; };
+		FFF651C0162411EC003191EC /* AFIncrementalStoreConstants.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = AFIncrementalStoreConstants.m; sourceTree = "<group>"; };
+		FFF651C1162411EC003191EC /* AFIncrementalStoreHTTPClient.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AFIncrementalStoreHTTPClient.h; sourceTree = "<group>"; };
+		FFF651C2162411EC003191EC /* AFIncrementalStoreReferenceObject.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AFIncrementalStoreReferenceObject.h; sourceTree = "<group>"; };
+		FFF651C3162411EC003191EC /* AFIncrementalStoreReferenceObject.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = AFIncrementalStoreReferenceObject.m; sourceTree = "<group>"; };
+		FFF651C4162411EC003191EC /* AFRESTClient.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AFRESTClient.h; sourceTree = "<group>"; };
+		FFF651C5162411EC003191EC /* AFRESTClient.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = AFRESTClient.m; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -183,10 +217,33 @@
 		F8AD92E215D9A0BB00402FE9 /* AFIncrementalStore */ = {
 			isa = PBXGroup;
 			children = (
-				F8AD92E315D9A0BB00402FE9 /* AFIncrementalStore.h */,
-				F8AD92E415D9A0BB00402FE9 /* AFIncrementalStore.m */,
-				F8AD92E515D9A0BB00402FE9 /* AFRESTClient.h */,
-				F8AD92E615D9A0BB00402FE9 /* AFRESTClient.m */,
+				FFF651AB162411EC003191EC /* AFIncrementalStore.h */,
+				FFF651AC162411EC003191EC /* AFIncrementalStore.m */,
+				FFF651AD162411EC003191EC /* AFIncrementalStore+BackingStore.h */,
+				FFF651AE162411EC003191EC /* AFIncrementalStore+BackingStore.m */,
+				FFF651AF162411EC003191EC /* AFIncrementalStore+Concurrency.h */,
+				FFF651B0162411EC003191EC /* AFIncrementalStore+Concurrency.m */,
+				FFF651B1162411EC003191EC /* AFIncrementalStore+Faulting.h */,
+				FFF651B2162411EC003191EC /* AFIncrementalStore+Faulting.m */,
+				FFF651B3162411EC003191EC /* AFIncrementalStore+Fetching.h */,
+				FFF651B4162411EC003191EC /* AFIncrementalStore+Fetching.m */,
+				FFF651B5162411EC003191EC /* AFIncrementalStore+Importing.h */,
+				FFF651B6162411EC003191EC /* AFIncrementalStore+Importing.m */,
+				FFF651B7162411EC003191EC /* AFIncrementalStore+Notifications.h */,
+				FFF651B8162411EC003191EC /* AFIncrementalStore+Notifications.m */,
+				FFF651B9162411EC003191EC /* AFIncrementalStore+ObjectIDs.h */,
+				FFF651BA162411EC003191EC /* AFIncrementalStore+ObjectIDs.m */,
+				FFF651BB162411EC003191EC /* AFIncrementalStore+Relationships.h */,
+				FFF651BC162411EC003191EC /* AFIncrementalStore+Relationships.m */,
+				FFF651BD162411EC003191EC /* AFIncrementalStore+Saving.h */,
+				FFF651BE162411EC003191EC /* AFIncrementalStore+Saving.m */,
+				FFF651BF162411EC003191EC /* AFIncrementalStoreConstants.h */,
+				FFF651C0162411EC003191EC /* AFIncrementalStoreConstants.m */,
+				FFF651C1162411EC003191EC /* AFIncrementalStoreHTTPClient.h */,
+				FFF651C2162411EC003191EC /* AFIncrementalStoreReferenceObject.h */,
+				FFF651C3162411EC003191EC /* AFIncrementalStoreReferenceObject.m */,
+				FFF651C4162411EC003191EC /* AFRESTClient.h */,
+				FFF651C5162411EC003191EC /* AFRESTClient.m */,
 			);
 			name = AFIncrementalStore;
 			path = ../../AFIncrementalStore;
@@ -288,7 +345,7 @@
 				CLASSPREFIX = AF;
 				LastUpgradeCheck = 0430;
 			};
-			buildConfigurationList = F8AFAFA715AB4F28003FE5BB /* Build configuration list for PBXProject "Incremental Twitter Example" */;
+			buildConfigurationList = F8AFAFA715AB4F28003FE5BB /* Build configuration list for PBXProject "Twitter Example" */;
 			compatibilityVersion = "Xcode 3.2";
 			developmentRegion = English;
 			hasScannedForEncodings = 0;
@@ -338,11 +395,22 @@
 				F8AD92DF15D9A0B400402FE9 /* AFURLConnectionOperation.m in Sources */,
 				F8AD92E015D9A0B400402FE9 /* AFXMLRequestOperation.m in Sources */,
 				F8AD92E115D9A0B400402FE9 /* UIImageView+AFNetworking.m in Sources */,
-				F8AD92E715D9A0BB00402FE9 /* AFIncrementalStore.m in Sources */,
-				F8AD92E815D9A0BB00402FE9 /* AFRESTClient.m in Sources */,
 				F8AD92F815D9A2DB00402FE9 /* Tweet.m in Sources */,
 				F8AD92FB15D9A2E500402FE9 /* User.m in Sources */,
 				F87CD18E15DAB2B200E4C166 /* TweetTableViewCell.m in Sources */,
+				FFF651C6162411EC003191EC /* AFIncrementalStore.m in Sources */,
+				FFF651C7162411EC003191EC /* AFIncrementalStore+BackingStore.m in Sources */,
+				FFF651C8162411EC003191EC /* AFIncrementalStore+Concurrency.m in Sources */,
+				FFF651C9162411EC003191EC /* AFIncrementalStore+Faulting.m in Sources */,
+				FFF651CA162411EC003191EC /* AFIncrementalStore+Fetching.m in Sources */,
+				FFF651CB162411EC003191EC /* AFIncrementalStore+Importing.m in Sources */,
+				FFF651CC162411EC003191EC /* AFIncrementalStore+Notifications.m in Sources */,
+				FFF651CD162411EC003191EC /* AFIncrementalStore+ObjectIDs.m in Sources */,
+				FFF651CE162411EC003191EC /* AFIncrementalStore+Relationships.m in Sources */,
+				FFF651CF162411EC003191EC /* AFIncrementalStore+Saving.m in Sources */,
+				FFF651D0162411EC003191EC /* AFIncrementalStoreConstants.m in Sources */,
+				FFF651D1162411EC003191EC /* AFIncrementalStoreReferenceObject.m in Sources */,
+				FFF651D2162411EC003191EC /* AFRESTClient.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -419,7 +487,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		F8AFAFA715AB4F28003FE5BB /* Build configuration list for PBXProject "Incremental Twitter Example" */ = {
+		F8AFAFA715AB4F28003FE5BB /* Build configuration list for PBXProject "Twitter Example" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				F8AFAFC815AB4F28003FE5BB /* Debug */,

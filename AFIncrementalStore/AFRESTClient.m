@@ -21,7 +21,7 @@
 // THE SOFTWARE.
 
 #import "AFRESTClient.h"
-#import "AFIncrementalStoreReferenceObject.h"
+#import "AFIncrementalStore+ObjectIDs.h"
 
 static NSString * AFPluralizedString(NSString *string) {
     if ([string hasSuffix:@"ss"] || [string hasSuffix:@"se"] || [string hasSuffix:@"sh"] || [string hasSuffix:@"ge"] || [string hasSuffix:@"ch"]) {
@@ -42,12 +42,9 @@ static NSString * AFPluralizedString(NSString *string) {
 	AFIncrementalStore *incrementalStore = (AFIncrementalStore *)object.objectID.persistentStore;
 	NSCParameterAssert([incrementalStore isKindOfClass:[AFIncrementalStore class]]);
 	
-	AFIncrementalStoreReferenceObject *referenceObject = (AFIncrementalStoreReferenceObject *)[incrementalStore referenceObjectForObjectID:object.objectID];
-	NSCParameterAssert([referenceObject isKindOfClass:[AFIncrementalStoreReferenceObject class]]);
+	NSString *resourceIdentifier = [incrementalStore resourceIdentifierForObjectID:object.objectID];
+	NSCParameterAssert(resourceIdentifier);
 	
-	NSString *resourceIdentifier = referenceObject.resourceIdentifier;
-	NSCParameterAssert(!resourceIdentifier || [resourceIdentifier isKindOfClass:[NSString class]]);
-
 	return [[self pathForEntity:object.entity] stringByAppendingPathComponent:[resourceIdentifier lastPathComponent]];
 	
 }

@@ -101,7 +101,7 @@
 	
 	for (NSManagedObjectID *objectID in objectIDs) {
 		
-		AFIncrementalStoreReferenceObject *referenceObject = [self referenceObjectForObjectID:objectID];
+		AFIncrementalStoreReferenceObject *referenceObject = [AFIncrementalStoreReferenceObject objectWithEntity:objectID.entity resourceIdentifier:[self resourceIdentifierForObjectID:objectID]];
 		NSCParameterAssert([referenceObject isKindOfClass:[AFIncrementalStoreReferenceObject class]]);
 		
 		[_registeredObjectIDsByResourceIdentifier setObject:objectID forKey:referenceObject];

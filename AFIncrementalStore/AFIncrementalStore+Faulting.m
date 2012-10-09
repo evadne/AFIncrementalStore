@@ -5,7 +5,6 @@
 #import "AFIncrementalStore+Faulting.h"
 #import "AFIncrementalStore+Notifications.h"
 #import "AFIncrementalStore+ObjectIDs.h"
-#import "AFIncrementalStoreReferenceObject.h"
 
 @implementation AFIncrementalStore (Faulting)
 
@@ -17,7 +16,7 @@
 	fetchRequest.fetchLimit = 1;
 	fetchRequest.includesSubentities = NO;
 	fetchRequest.propertiesToFetch = [[entity attributesByName] allKeys];
-	fetchRequest.predicate = [NSPredicate predicateWithFormat:@"%K = %@", AFIncrementalStoreResourceIdentifierAttributeName, [self referenceObjectForObjectID:objectID].resourceIdentifier];
+	fetchRequest.predicate = [NSPredicate predicateWithFormat:@"%K = %@", AFIncrementalStoreResourceIdentifierAttributeName, [self resourceIdentifierForObjectID:objectID]];
 		
 	NSManagedObjectContext *backingContext = [self backingManagedObjectContext];
 	NSArray *results = [backingContext executeFetchRequest:fetchRequest error:error];

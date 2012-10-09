@@ -8,7 +8,7 @@
 - (NSManagedObjectID *) objectIDForEntity:(NSEntityDescription *)entity withResourceIdentifier:(NSString *)resourceIdentifier;
 - (NSManagedObjectID *) objectIDForBackingObjectForEntity:(NSEntityDescription *)entity withResourceIdentifier:(NSString *)resourceIdentifier;
 
-- (NSManagedObjectID *) newObjectIDForEntity:(NSEntityDescription *)entity referenceObject:(AFIncrementalStoreReferenceObject *)data;
-- (AFIncrementalStoreReferenceObject *) referenceObjectForObjectID:(NSManagedObjectID *)objectID;
+- (NSManagedObjectID *) newObjectIDForEntity:(NSEntityDescription *)entity resourceIdentifier:(NSString *)resourceIdentifier;
+- (NSString *) resourceIdentifierForObjectID:(NSManagedObjectID *)objectID;
 
 @end

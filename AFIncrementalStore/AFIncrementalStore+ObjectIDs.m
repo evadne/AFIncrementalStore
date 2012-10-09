@@ -1,8 +1,11 @@
 //  AFIncrementalStore+ObjectIDs.m
 
+#import <objc/runtime.h>
 #import "AFIncrementalStore+BackingStore.h"
 #import "AFIncrementalStore+ObjectIDs.h"
 #import "AFIncrementalStoreReferenceObject.h"
+
+NSString * kAFIncrementalStoreObjectIDContext = @"AFIncrementalStoreObjectIDContext";
 
 @implementation AFIncrementalStore (ObjectIDs)
 
@@ -11,14 +14,15 @@
   
 	AFIncrementalStoreReferenceObject *referenceObject = [AFIncrementalStoreReferenceObject objectWithEntity:entity resourceIdentifier:resourceIdentifier];
 
-	NSManagedObjectID *registeredObjectID = [_registeredObjectIDsByResourceIdentifier objectForKey:referenceObject];
+	NSManagedObjectID *objectID = [_registeredObjectIDsByResourceIdentifier objectForKey:referenceObject];
 	
-	if (!registeredObjectID)
-		return [self newObjectIDForEntity:entity referenceObject:referenceObject];
+	if (!objectID) {
+		objectID = [self newObjectIDForEntity:entity referenceObject:resourceIdentifier];
+		objc_setAssociatedObject(objectID, &kAFIncrementalStoreObjectIDContext, referenceObject, OBJC_ASSOCIATION_RETAIN);
+	}
 	
-	NSCParameterAssert([registeredObjectID persistentStore] == self);
-	
-	return registeredObjectID;
+	NSCParameterAssert([objectID persistentStore] == self);
+	return objectID;
 	
 }
 
@@ -44,28 +48,26 @@
     return [results lastObject];
 }
 
-- (NSManagedObjectID *) newObjectIDForEntity:(NSEntityDescription *)entity referenceObject:(AFIncrementalStoreReferenceObject *)data {
+- (NSManagedObjectID *) newObjectIDForEntity:(NSEntityDescription *)entity resourceIdentifier:(NSString *)resourceIdentifier {
 
-	if ([data isKindOfClass:[AFIncrementalStoreReferenceObject class]]) {
+	AFIncrementalStoreReferenceObject *referenceObject = [AFIncrementalStoreReferenceObject objectWithEntity:entity resourceIdentifier:resourceIdentifier];
 	
-		return [super newObjectIDForEntity:entity referenceObject:data];
-		
-	} else {
+	NSManagedObjectID *objectID = [self newObjectIDForEntity:entity referenceObject:resourceIdentifier];
+	objc_setAssociatedObject(objectID, &kAFIncrementalStoreObjectIDContext, referenceObject, OBJC_ASSOCIATION_RETAIN);
 	
-		AFIncrementalStoreReferenceObject *referneceObject = [AFIncrementalStoreReferenceObject objectWithEntity:entity resourceIdentifier:nil];
-		
-		return [super newObjectIDForEntity:entity referenceObject:referneceObject];
-		
-	}
-	
+	return objectID;
+
 }
 
-- (AFIncrementalStoreReferenceObject *) referenceObjectForObjectID:(NSManagedObjectID *)objectID {
+- (NSString *) resourceIdentifierForObjectID:(NSManagedObjectID *)objectID {
 
-	id object = [super referenceObjectForObjectID:objectID];
-	NSCParameterAssert(!object || [object isKindOfClass:[AFIncrementalStoreReferenceObject class]]);
+	id referenceObject = objc_getAssociatedObject(objectID, &kAFIncrementalStoreObjectIDContext);
 	
-	return object;
+	if ([referenceObject isKindOfClass:[AFIncrementalStoreReferenceObject class]]) {
+		return [(AFIncrementalStoreReferenceObject *)referenceObject resourceIdentifier];
+	}
+	
+	return nil;
 
 }
 
