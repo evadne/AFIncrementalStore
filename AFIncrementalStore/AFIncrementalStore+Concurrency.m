@@ -30,4 +30,33 @@
 	
 }
 
+- (BOOL) isPostponingOperations {
+	
+	return !!_operationPostponementCascadeCount;
+
+}
+
+- (void) beginPostponingOperations {
+
+	NSCParameterAssert([NSThread isMainThread]);
+	
+	_operationPostponementCascadeCount++;
+	
+	if (_operationPostponementCascadeCount == 1)
+		[self.operationQueue setSuspended:YES];
+
+}
+
+- (void) endPostponingOperations {
+
+	NSCParameterAssert([NSThread isMainThread]);
+	NSCParameterAssert(_operationPostponementCascadeCount);
+	
+	_operationPostponementCascadeCount--;
+	
+	if (_operationPostponementCascadeCount == 0)
+		[self.operationQueue setSuspended:NO];
+
+}
+
 @end

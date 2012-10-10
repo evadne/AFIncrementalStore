@@ -49,6 +49,7 @@
 		NSMutableDictionary *_registeredObjectIDsByResourceIdentifier;
 		NSOperationQueue *_operationQueue;
 		AFHTTPClient<AFIncrementalStoreHTTPClient> *_HTTPClient;
+		NSUInteger _operationPostponementCascadeCount;
 }
 
 ///---------------------------------------------

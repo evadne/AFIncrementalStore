@@ -9,4 +9,8 @@
 - (void) performBlock:(void(^)(void))block;
 - (void) performBlockAndWait:(void(^)(void))block;
 
+- (BOOL) isPostponingOperations;
+- (void) beginPostponingOperations;
+- (void) endPostponingOperations;
+
 @end
