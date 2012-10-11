@@ -30,6 +30,9 @@
 
 	AFHTTPClient<AFIncrementalStoreHTTPClient> *httpClient = self.HTTPClient;
 	
+	if (![self resourceIdentifierForObjectID:objectID])
+		return NO;
+	
 	if ([httpClient respondsToSelector:@selector(shouldFetchRemoteValuesForRelationship:forObjectWithID:inManagedObjectContext:)]) {
 	
 		return [httpClient shouldFetchRemoteValuesForRelationship:relationship forObjectWithID:objectID inManagedObjectContext:context];

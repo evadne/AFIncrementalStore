@@ -1,6 +1,8 @@
 //  AFIncrementalStore+Saving.m
 
 #import "AFIncrementalStore+BackingStore.h"
+#import "AFIncrementalStore+Concurrency.h"
+#import "AFIncrementalStore+Importing.h"
 #import "AFIncrementalStore+ObjectIDs.h"
 #import "AFIncrementalStore+Saving.h"
 
@@ -8,19 +10,6 @@
 
 - (id) executePersistentStoreSaveChangesRequest:(NSSaveChangesRequest *)saveChangesRequest withContext:(NSManagedObjectContext *)context error:(NSError **)error {
 
-	NSArray * (^map)(NSArray *, id(^)(id, NSUInteger)) = ^ (NSArray *array, id(^block)(id, NSUInteger)) {
-		
-		if (!block || ![array count])
-			return array;
-		
-		NSMutableArray *answer = [NSMutableArray arrayWithCapacity:[array count]];
-		[array enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
-			[answer addObject:block(obj, idx)];
-		}];
-		
-		return (NSArray *)answer;
-		
-	};
 	
 	/*
 	
@@ -51,6 +40,64 @@
 	//	then find eligible entry points
 	//	For every single object
 	
+	AFHTTPClient<AFIncrementalStoreHTTPClient> *httpClient = self.HTTPClient;
+	NSManagedObjectContext *childContext = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+	childContext.parentContext = context;
+	childContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy;
+	
+	NSArray *entityOperations = [self operationsForSaveChangesRequest:saveChangesRequest savingIntoManagedObjectContext:childContext];
+	NSMutableArray *operations = [entityOperations mutableCopy];
+	
+	NSOperation *tailOperation = [NSBlockOperation blockOperationWithBlock:^{
+			
+		for (AFHTTPRequestOperation *operation in entityOperations) {
+			NSCParameterAssert([operation isFinished]);
+			if (![operation hasAcceptableStatusCode]) {
+				NSLog(@"Operation %@ failed with error, not saving.", operation);
+				return;
+			}
+		}
+
+		[self performBlock:^{
+		
+			NSManagedObjectContext *backingContext = [self backingManagedObjectContext];
+			
+			__block BOOL backingContextDidSave = NO;
+			__block NSError *backingContextSavingError = nil;
+			[backingContext performBlockAndWait:^{
+				backingContextDidSave = [backingContext save:&backingContextSavingError];
+			}];
+			if (!backingContextDidSave) {
+				NSLog(@"Backing context saving error: %@", backingContextSavingError);
+				return;
+			}
+			
+			__block BOOL childContextDidSave = NO;
+			__block NSError *childContextSavingError = nil;
+			[childContext performBlockAndWait:^{
+				childContextDidSave = [childContext save:&childContextSavingError];
+			}];
+			if (!childContextDidSave) {
+				NSLog(@"Child context saving error: %@", childContextSavingError);
+			}
+			
+		}];
+
+	}];
+	
+	for (NSOperation *op in operations)
+		[tailOperation addDependency:op];
+	
+	[operations addObject:tailOperation];
+		
+	[httpClient.operationQueue addOperations:operations waitUntilFinished:NO];
+	
+	return @[];
+
+}
+
+- (NSArray *) operationsForSaveChangesRequest:(NSSaveChangesRequest *)saveChangesRequest savingIntoManagedObjectContext:(NSManagedObjectContext *)childContext {
+
 	NSSet *insertedObjects = [saveChangesRequest insertedObjects];
 	NSSet *updatedObjects = [saveChangesRequest updatedObjects];
 	NSSet *deletedObjects = [saveChangesRequest deletedObjects];
@@ -63,74 +110,104 @@
 	NSCParameterAssert(![updatedObjects intersectsSet:lockedObjects]);
 	NSCParameterAssert(![deletedObjects intersectsSet:lockedObjects]);
 	
-	AFHTTPClient<AFIncrementalStoreHTTPClient> *httpClient = self.HTTPClient;
+	NSMutableArray *operations = [NSMutableArray array];
 	
-	NSURLRequest * (^request)(NSString *, NSManagedObject *, NSManagedObjectContext *) = ^ (NSString *method, NSManagedObject *object, NSManagedObjectContext *context) {
-	
-		NSManagedObjectID *objectID = [object objectID];
-		NSEntityDescription *objectEntity = [objectID entity];
+	NSArray * (^map)(NSArray *, id(^)(id, NSUInteger)) = ^ (NSArray *array, id(^block)(id, NSUInteger)) {
 		
-		NSDictionary *representation = [httpClient representationForObject:object];
-		NSString *resourceIdentifier = [httpClient resourceIdentifierForRepresentation:representation ofEntity:objectEntity fromResponse:nil];
+		if (!block || ![array count])
+			return array;
 		
-		NSManagedObjectID *backingObjectID = [self objectIDForBackingObjectForEntity:objectEntity withResourceIdentifier:resourceIdentifier];
+		NSMutableArray *answer = [NSMutableArray arrayWithCapacity:[array count]];
+		[array enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
+			[answer addObject:block(obj, idx)];
+		}];
 		
-		if (!backingObjectID && ([method isEqualToString:@"POST"] || [method isEqualToString:@"PUT"])) {
-		
-			return (NSURLRequest *)[httpClient requestWithMethod:method path:[httpClient pathForEntity:object.entity] parameters:[httpClient representationForObject:object]];
-		
-		} else {
-
-			return [httpClient requestWithMethod:method pathForObjectWithID:objectID withContext:context];
-		
-		}
+		return (NSArray *)answer;
 		
 	};
 	
-	NSMutableArray *requests = [NSMutableArray array];
-	
-	for (NSManagedObject *insertedObject in [insertedObjects copy])
-		[requests addObject:request(@"POST", insertedObject, context)];
-	
-	for (NSManagedObject *updatedObject in [updatedObjects copy])
-		[requests addObject:request(@"POST", updatedObject, context)];
-	
-	for (NSManagedObject *deletedObject in [deletedObjects copy])
-		[requests addObject:request(@"DELETE", deletedObject, context)];
-
-	for (NSManagedObject *lockedObject in [lockedObjects copy])
-		[requests addObject:request(@"GET", lockedObject, context)];
-	
-	NSArray *operations = map(requests, ^ (NSURLRequest *request, NSUInteger index) {
-	
-		AFHTTPRequestOperation *operation = [httpClient HTTPRequestOperationWithRequest:request success:^(AFHTTPRequestOperation *operation, id responseObject) {
+	[operations addObjectsFromArray:map([insertedObjects allObjects], ^ (NSManagedObject *obj, NSUInteger idx) {
 		
-			NSLog(@"%@ %s %@ %@", NSStringFromSelector(_cmd), __PRETTY_FUNCTION__, operation, responseObject);
+		return [self importOperationWithRequest:[self requestForInsertedObject:obj context:childContext] resultEntity:obj.entity context:childContext];
+		
+	})];
+	
+	return operations;
+
+}
+
+- (AFHTTPRequestOperation *) importOperationWithRequest:(NSURLRequest *)urlRequest resultEntity:(NSEntityDescription *)entity context:(NSManagedObjectContext *)childContext {
+
+	AFHTTPClient<AFIncrementalStoreHTTPClient> *httpClient = self.HTTPClient;
+	
+	AFHTTPRequestOperation *operation = [httpClient HTTPRequestOperationWithRequest:urlRequest success:^(AFHTTPRequestOperation *operation, id responseObject) {
+	
+		[self performBlock:^{
+		
+			NSArray *representations = [self representationsFromResponse:responseObject];
+			NSCParameterAssert([representations count] == 1);
+			NSDictionary *representation = [representations lastObject];
 			
-		} failure:^(AFHTTPRequestOperation *operation, NSError *error) {
-			
-			NSLog(@"%@ %s %@ %@", NSStringFromSelector(_cmd), __PRETTY_FUNCTION__, operation, error);
-			
+			[self importRepresentation:representation ofEntity:entity withResponse:responseObject context:childContext asManagedObject:nil backingObject:nil];
+				
 		}];
+	
+	} failure:^(AFHTTPRequestOperation *operation, NSError *error) {
 		
-		return operation;
+		NSLog(@"%@ %s %@ %@", NSStringFromSelector(_cmd), __PRETTY_FUNCTION__, operation, error);
+		
+	}];
+	
+	return operation;
 
-	});
+}
+
+- (NSURLRequest *) requestForHTTPMethod:(NSString *)method object:(NSManagedObject *)object context:(NSManagedObjectContext *)context {
+
+	AFHTTPClient<AFIncrementalStoreHTTPClient> *httpClient = self.HTTPClient;
 	
-	[httpClient.operationQueue addOperations:operations waitUntilFinished:YES];
+	NSManagedObjectID *objectID = [object objectID];
+	NSEntityDescription *objectEntity = [objectID entity];
 	
-	for (AFHTTPRequestOperation *operation in operations) {
-		NSCParameterAssert([operation isFinished]);
-		if (![operation hasAcceptableStatusCode]) {
-			if (error) {
-				*error = AFIncrementalStoreError(operation.response.statusCode, [NSString stringWithFormat:@"Operation %@ failed with error.", operation]);
-			}
-			return nil;
-		}
+	NSDictionary *representation = [httpClient representationForObject:object];
+	NSString *resourceIdentifier = [httpClient resourceIdentifierForRepresentation:representation ofEntity:objectEntity fromResponse:nil];
+	
+	NSManagedObjectID *backingObjectID = [self objectIDForBackingObjectForEntity:objectEntity withResourceIdentifier:resourceIdentifier];
+	
+	if (!backingObjectID && ([method isEqualToString:@"POST"] || [method isEqualToString:@"PUT"])) {
+	
+		return (NSURLRequest *)[httpClient requestWithMethod:method path:[httpClient pathForEntity:object.entity] parameters:[httpClient representationForObject:object]];
+	
+	} else {
+
+		return [httpClient requestWithMethod:method pathForObjectWithID:objectID withContext:context];
+	
 	}
-	
-	return @[];
 
+}
+
+- (NSURLRequest *) requestForInsertedObject:(NSManagedObject *)object context:(NSManagedObjectContext *)context {
+
+	return [self requestForHTTPMethod:@"POST" object:object context:context];
+
+}
+
+- (NSURLRequest *) requestForUpdatedObject:(NSManagedObject *)object context:(NSManagedObjectContext *)context {
+	
+	return [self requestForHTTPMethod:@"POST" object:object context:context];
+
+}
+
+- (NSURLRequest *) requestForDeletedObject:(NSManagedObject *)object context:(NSManagedObjectContext *)context {
+
+	return [self requestForHTTPMethod:@"DELETE" object:object context:context];
+	
+}
+
+- (NSURLRequest *) requestForLockedObject:(NSManagedObject *)object context:(NSManagedObjectContext *)context {
+
+	return [self requestForHTTPMethod:@"GET" object:object context:context];
+	
 }
 
 @end

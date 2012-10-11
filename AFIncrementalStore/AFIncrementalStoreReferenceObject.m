@@ -15,7 +15,7 @@
 - (id) initWithEntity:(NSEntityDescription *)entity resourceIdentifier:(NSString *)identifier {
 
 	NSCParameterAssert([entity isKindOfClass:[NSEntityDescription class]]);
-	NSCParameterAssert([identifier isKindOfClass:[NSString class]]);
+	NSCParameterAssert(!identifier || [identifier isKindOfClass:[NSString class]]);
 	
 	self = [super init];
 	if (!self)
