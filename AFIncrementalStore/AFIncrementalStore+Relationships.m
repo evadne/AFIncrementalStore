@@ -100,9 +100,6 @@
 		
 		[self importRepresentation:representations fromResponse:response context:childContext forRelationship:relationship usingManagedObject:managedObject backingObject:backingObject];
 		
-		NSLog(@"backing has %@", [backingObject valueForKey:relationship.name]);
-		NSLog(@"managed has %@", [managedObject valueForKey:relationship.name]);
-		
 		__block NSError *backingContextSavingError = nil;
 		__block BOOL backingContextDidSave = NO;
 		[backingContext performBlockAndWait:^{
