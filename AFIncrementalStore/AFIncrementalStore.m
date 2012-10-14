@@ -418,9 +418,9 @@ static NSDate * AFLastModifiedDateFromHTTPHeaders(NSDictionary *headers) {
                     
                     for (NSManagedObject *childObject in childObjects) {
                         NSManagedObject *rootObject = [context objectWithID:childObject.objectID];
-                        [rootObject willChangeValueForKey:nil];
+                        [rootObject willChangeValueForKey:@"self"];
                         [rootObject.managedObjectContext refreshObject:rootObject mergeChanges:NO];
-                        [rootObject didChangeValueForKey:nil];
+                        [rootObject didChangeValueForKey:@"self"];
                     }
                     
                 }];
