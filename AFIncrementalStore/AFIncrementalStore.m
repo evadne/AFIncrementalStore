@@ -235,7 +235,7 @@ static NSDate * AFLastModifiedDateFromHTTPHeaders(NSDictionary *headers) {
     
     if (!_backingManagedObjectContext) {
         
-        _backingManagedObjectContext = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+        _backingManagedObjectContext = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSConfinementConcurrencyType];
         
         _backingManagedObjectContext.persistentStoreCoordinator = _backingPersistentStoreCoordinator;
         _backingManagedObjectContext.retainsRegisteredObjects = YES;
@@ -772,7 +772,7 @@ static NSDate * AFLastModifiedDateFromHTTPHeaders(NSDictionary *headers) {
         __block NSManagedObject *backingObject = nil;
         
         if (objectID) {
-            [backingContext performBlockAndWait:^{
+            [backingContext af_performBlockAndWait:^{
                 backingObject = [backingContext existingObjectWithID:objectID error:nil];
             }];
         }
@@ -834,7 +834,7 @@ static NSDate * AFLastModifiedDateFromHTTPHeaders(NSDictionary *headers) {
     
         [updatedObject setValuesForKeysWithDictionary:[httpClient attributesForRepresentation:responseObject ofEntity:updatedObject.entity fromResponse:operation.response]];
         
-        [backingContext performBlockAndWait:^{
+        [backingContext af_performBlockAndWait:^{
             NSManagedObject *backingObject = [backingContext existingObjectWithID:updatedObject.objectID error:nil];
             [backingObject setValuesForKeysWithDictionary:[updatedObject dictionaryWithValuesForKeys:nil]];
             [backingContext save:nil];
@@ -864,7 +864,7 @@ static NSDate * AFLastModifiedDateFromHTTPHeaders(NSDictionary *headers) {
     
     AFHTTPRequestOperation *operation = [self.HTTPClient HTTPRequestOperationWithRequest:request success:^(AFHTTPRequestOperation *operation, id responseObject) {
     
-        [backingContext performBlockAndWait:^{
+        [backingContext af_performBlockAndWait:^{
             
             NSManagedObject *backingObject = [backingContext existingObjectWithID:deletedObject.objectID error:nil];
             [backingContext deleteObject:backingObject];
