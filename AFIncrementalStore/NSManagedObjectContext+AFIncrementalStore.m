@@ -88,7 +88,11 @@ const void * kIgnoringCount = &kIgnoringCount;
 		}
 		
 		case NSConfinementConcurrencyType: {
-			dispatch_sync([self af_dispatchQueue], block);
+			dispatch_sync([self af_dispatchQueue], ^{
+				[self lock];
+				block();
+				[self unlock];
+			});
 			break;
 		}
 	

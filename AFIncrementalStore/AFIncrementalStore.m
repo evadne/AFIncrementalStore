@@ -625,7 +625,10 @@ static NSDate * AFLastModifiedDateFromHTTPHeaders(NSDictionary *headers) {
             return mutableObjects;
         }
         case NSManagedObjectIDResultType: {
-            NSArray *backingObjectIDs = [backingContext executeFetchRequest:fetchRequest error:error];
+            __block NSArray *backingObjectIDs;
+            [backingContext af_performBlockAndWait:^{
+                backingObjectIDs = [backingContext executeFetchRequest:fetchRequest error:error];
+            }];
             NSMutableArray *managedObjectIDs = [NSMutableArray arrayWithCapacity:[backingObjectIDs count]];
             
             for (NSManagedObjectID *backingObjectID in backingObjectIDs) {
@@ -637,10 +640,15 @@ static NSDate * AFLastModifiedDateFromHTTPHeaders(NSDictionary *headers) {
             return managedObjectIDs;
         }
         case NSDictionaryResultType:
-        case NSCountResultType:
-            return [backingContext executeFetchRequest:fetchRequest error:error];
-        default:
+        case NSCountResultType: {
+            [backingContext af_performBlockAndWait:^{
+                results = [backingContext executeFetchRequest:fetchRequest error:error];                
+            }];
+            return results;
+        }
+        default: {
             return nil;
+        }
     }
 }
 
