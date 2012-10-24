@@ -488,12 +488,14 @@ static NSDate * AFLastModifiedDateFromHTTPHeaders(NSDictionary *headers) {
     for (NSManagedObject *backingObject in backingObjects)
         NSCParameterAssert([backingObject af_isPermanent]);
     
-    NSError *backingContextSavingError;
-    if (![backingContext save:&backingContextSavingError]) {
-        @throw [NSException exceptionWithName:NSInternalInconsistencyException reason:@"Saving failed." userInfo:@{
-            NSUnderlyingErrorKey: backingContextSavingError
-        }];
-    }
+    [backingContext af_performBlockAndWait:^{
+        NSError *backingContextSavingError;
+        if (![backingContext save:&backingContextSavingError]) {
+            @throw [NSException exceptionWithName:NSInternalInconsistencyException reason:@"Saving failed." userInfo:@{
+                NSUnderlyingErrorKey: backingContextSavingError
+            }];
+        }
+    }];
     
     for (NSManagedObject *backingObject in backingObjects)
         NSCParameterAssert(![[backingObject changedValues] count]);
@@ -975,13 +977,11 @@ static NSDate * AFLastModifiedDateFromHTTPHeaders(NSDictionary *headers) {
     
     fetchRequest.predicate = [NSPredicate predicateWithFormat:@"%K = %@", kAFIncrementalStoreResourceIdentifierAttributeName, [self referenceObjectForObjectID:objectID]];
     
-    [self.backingPersistentStoreCoordinator lock];
     __block NSArray *results;
     NSManagedObjectContext *backingContext = [self backingManagedObjectContext];
     [backingContext af_performBlockAndWait:^{
         results = [backingContext executeFetchRequest:fetchRequest error:error];
     }];
-    [self.backingPersistentStoreCoordinator unlock];
     
     NSDictionary *attributeValues = [results lastObject] ?: [NSDictionary dictionary];
     NSIncrementalStoreNode *node = [[NSIncrementalStoreNode alloc] initWithObjectID:objectID withValues:attributeValues version:1];
