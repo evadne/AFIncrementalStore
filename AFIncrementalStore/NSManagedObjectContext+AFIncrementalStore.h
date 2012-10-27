@@ -14,4 +14,7 @@
 - (void) af_incrementIgnoringCount;
 - (void) af_decrementIgnoringCount;
 
+- (void) af_saveObjects:(NSArray *)objects;
+- (void) af_refreshObjects:(NSArray *)objects;
+
 @end

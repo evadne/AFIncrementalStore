@@ -1,3 +1,4 @@
+#import "NSManagedObject+AFIncrementalStore.h"
 #import "NSManagedObjectContext+AFIncrementalStore.h"
 #import "RASchedulingKit.h"
 
@@ -127,6 +128,80 @@ const void * kIgnoringCount = &kIgnoringCount;
 	
 	[self af_setIgnoringCount:(count - 1)];
 
+}
+
+- (void) af_saveObjects:(NSArray *)objects {
+	
+	for (NSManagedObject *object in objects) {
+		NSCParameterAssert(object.managedObjectContext == self);
+		NSCParameterAssert([object af_isPermanent]);
+	}
+	
+	[self af_performBlockAndWait:^{
+		NSError *backingContextSavingError;
+		if (![self save:&backingContextSavingError]) {
+			@throw [NSException exceptionWithName:NSInternalInconsistencyException reason:@"Saving failed." userInfo:@{
+			 NSUnderlyingErrorKey: backingContextSavingError
+			}];
+		}
+	}];
+	
+	for (NSManagedObject *object in objects)
+		NSCParameterAssert(![[object changedValues] count]);
+	
+}
+
+- (void) af_refreshObjects:(NSArray *)objects {
+	
+	for (NSManagedObject *object in objects)
+		NSCParameterAssert([object af_isPermanent]);
+	
+	NSSet *refreshedObjects = [NSSet setWithArray:objects];
+	NSManagedObjectContext *parentContext = self.parentContext;
+	
+	[parentContext af_performBlock:^{
+		
+		[parentContext af_incrementIgnoringCount];
+		
+		for (NSManagedObject *registeredObject in refreshedObjects) {
+			
+			NSManagedObject *rootObject = [parentContext objectWithID:registeredObject.objectID];
+			
+			[rootObject willChangeValueForKey:@"self"];
+			[parentContext refreshObject:rootObject mergeChanges:NO];
+			[rootObject didChangeValueForKey:@"self"];
+			
+			NSCParameterAssert(![[rootObject changedValues] count]);
+			
+		}
+		
+		[parentContext processPendingChanges];
+		[parentContext af_decrementIgnoringCount];
+		
+		[self af_performBlock:^{
+			
+			[self af_incrementIgnoringCount];
+			
+			for (NSManagedObject *registeredObject in refreshedObjects) {
+				
+				[registeredObject willChangeValueForKey:@"self"];
+				[self refreshObject:registeredObject mergeChanges:NO];
+				[registeredObject didChangeValueForKey:@"self"];
+				
+				NSCParameterAssert(![[registeredObject changedValues] count]);
+				
+			}
+			
+			[self processPendingChanges];
+			[self af_decrementIgnoringCount];
+			
+			for (NSManagedObject *object in objects)
+				NSCParameterAssert(![[object changedValues] count]);
+			
+		}];
+		
+	}];
+	
 }
 
 @end
