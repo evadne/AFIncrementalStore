@@ -68,33 +68,36 @@ const void * kIgnoringCount = &kIgnoringCount;
 }
 
 - (void) af_performBlockAndWait:(void(^)())block {
-	
+
 	switch (self.concurrencyType) {
 	
 		case NSMainQueueConcurrencyType: {
-			if ([NSThread isMainThread]) {
-				block();
-			} else {
-				[self performBlockAndWait:block];
-			}
+			
+			[self performBlockAndWait:block];
+			
 			break;
+			
 		}
 		
-		case NSPrivateQueueConcurrencyType: {
-			//	Fixes a locking issue regarding invoking -performBlockAndWait: simultaneously on different threads, involving NSFetchedResultsController, locking and concurrent importing.
-			dispatch_sync([self af_dispatchQueue], ^{
-				[self performBlockAndWait:block];
-			});
-			break;
-		}
-		
+		case NSPrivateQueueConcurrencyType:
 		case NSConfinementConcurrencyType: {
-			dispatch_sync([self af_dispatchQueue], ^{
-				[self lock];
-				block();
-				[self unlock];
-			});
+			
+			if (self.parentContext) {
+				
+				[self.parentContext af_performBlockAndWait:block];
+				
+			} else {
+
+				dispatch_sync([self af_dispatchQueue], ^{
+					
+					[self performBlockAndWait:block];
+					
+				});
+			
+			}
+			
 			break;
+			
 		}
 	
 	}
