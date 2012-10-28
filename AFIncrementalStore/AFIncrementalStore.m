@@ -162,34 +162,831 @@ NSString * const kAFIncrementalStoreLastModifiedAttributeName = @"__af_lastModif
     
 }
 
-# pragma mark - Concurrency
+- (NSManagedObject *) backingObjectInContext:(NSManagedObjectContext *)backingContext forManagedObject:(NSManagedObject *)managedObject {
 
-- (NSOperationQueue *) operationQueue {
-
-    if (!_operationQueue) {
+    NSEntityDescription *backingEntity = [NSEntityDescription entityForName:managedObject.entity.name inManagedObjectContext:backingContext];
+    NSString *resourceIdentifier = managedObject.af_resourceIdentifier;
     
-        _operationQueue = [RAOperationQueue new];
-        _operationQueue.maxConcurrentOperationCount = 1;
+    if (!backingEntity || !resourceIdentifier)
+        return (NSManagedObject *)nil;
     
-    }
+    NSManagedObjectID *objectID = [self backingObjectIDForEntity:backingEntity resourceIdentifier:resourceIdentifier inContext:backingContext error:nil];
     
-    return _operationQueue;
+    if (!objectID)
+        return (NSManagedObject *)nil;
+    
+    return [backingContext existingObjectWithID:objectID error:nil];;
 
 }
 
-- (dispatch_queue_t) dispatchQueue {
+- (NSManagedObjectID *) backingObjectIDForEntity:(NSEntityDescription *)entity resourceIdentifier:(NSString *)resourceIdentifier inContext:(NSManagedObjectContext *)context error:(NSError **)outError {
 
-    if (!_dispatchQueue) {
+    NSCParameterAssert(entity);
+    NSCParameterAssert(resourceIdentifier);
+    NSCParameterAssert([context af_isDescendantOfContext:self.backingManagedObjectContext]);
+    
+    NSFetchRequest *fetchRequest = [self fetchRequestForObjectIDWithEntity:entity resourceIdentifier:resourceIdentifier];
+    
+    __block NSArray *results = nil;
+    [context af_performBlockAndWait:^{
+       results = [context executeFetchRequest:fetchRequest error:outError];
+    }];
+    
+    return [results lastObject];
+
+}
+
+# pragma mark - Dispatch
+
+- (id) executeRequest:(NSPersistentStoreRequest *)persistentStoreRequest withContext:(NSManagedObjectContext *)context error:(NSError *__autoreleasing *)error {
+    
+    NSPersistentStoreRequestType type = persistentStoreRequest.requestType;
+    
+    if (type == NSFetchRequestType) {
         
-        _dispatchQueue = dispatch_queue_create([NSStringFromClass([self class]) UTF8String], DISPATCH_QUEUE_SERIAL);
+        NSFetchRequest *fetchRequest = (NSFetchRequest *)persistentStoreRequest;
+        NSCParameterAssert([fetchRequest isKindOfClass:[NSFetchRequest class]]);
+        
+        return [self executeFetchRequest:fetchRequest withContext:context error:error];
+        
+    } else if (type == NSSaveRequestType) {
+        
+        NSSaveChangesRequest *saveChangesRequest = (NSSaveChangesRequest *)persistentStoreRequest;
+        NSCParameterAssert([saveChangesRequest isKindOfClass:[NSSaveChangesRequest class]]);
+        
+        return [self executeSaveChangesRequest:saveChangesRequest withContext:context error:error];
+        
+    } else {
+    
+        if (error) {
+            *error = [NSError errorWithDomain:AFNetworkingErrorDomain code:0 userInfo:@{
+                NSLocalizedDescriptionKey: [NSString stringWithFormat:@"Unsupported NSFetchRequestResultType %d", persistentStoreRequest.requestType]
+            }];
+        }
+        
+        return nil;
+        
+    }
+    
+}
+
+- (id) executeFetchRequest:(NSFetchRequest *)fetchRequest withContext:(NSManagedObjectContext *)context error:(NSError *__autoreleasing *)error {
+    
+    NSCParameterAssert(fetchRequest);
+    NSCParameterAssert(context);
+    
+    if ([self shouldExecuteRemoteFetchRequest:fetchRequest withContext:context]) {
+    
+        [self executeRemoteFetchRequest:fetchRequest withContext:context];
     
     }
     
-    return _dispatchQueue;
+    return [self executeLocalFetchRequest:fetchRequest withContext:context error:error];
 
 }
 
-# pragma mark - Stuff
+- (id) executeSaveChangesRequest:(NSSaveChangesRequest *)saveChangesRequest withContext:(NSManagedObjectContext *)context error:(NSError *__autoreleasing *)error {
+
+    
+    if ([self shouldExecuteRemoteSaveChangesRequest:saveChangesRequest withContext:context]) {
+    
+        [self executeRemoteSaveChangesRequest:saveChangesRequest withContext:context];
+    
+    }
+    
+    return [self executeLocalSaveChangesRequest:saveChangesRequest withContext:context error:error];
+    
+}
+
+- (NSIncrementalStoreNode *)newValuesForObjectWithID:(NSManagedObjectID *)objectID
+                                         withContext:(NSManagedObjectContext *)context
+                                               error:(NSError *__autoreleasing *)error
+{
+    
+    NSIncrementalStoreNode *node = [self retrieveLocalValuesForObjectWithID:objectID context:context error:error];
+    
+    if ([self shouldRetrieveRemoteValuesForObjectWithID:objectID withContext:context]) {
+        
+        NSDictionary *properties = objectID.entity.propertiesByName;
+        NSPropertyDescription *property = properties[kAFIncrementalStoreLastModifiedAttributeName];
+        NSMutableDictionary *options = nil;
+        
+        NSDate *date = [node valueForPropertyDescription:property];
+        if ([date isKindOfClass:[NSDate date]]) {
+            options = options ?: [NSMutableDictionary dictionary];
+            options[kAFIncrementalStoreLastModifiedAttributeName] = date;
+        }
+    
+        [self retrieveRemoteValueForObjectWithID:objectID context:context options:options];
+    
+    }
+    
+    return node;
+    
+}
+
+- (id) newValueForRelationship:(NSRelationshipDescription *)relationship forObjectWithID:(NSManagedObjectID *)objectID withContext:(NSManagedObjectContext *)context error:(NSError *__autoreleasing *)error {
+
+    if ([self shouldRetrieveRemoteValueForRelationship:relationship forObjectWithID:objectID withContext:context]) {
+    
+        [self fetchNewValueForRelationship:relationship forObjectWithID:objectID withContext:context];
+        
+    }
+    
+    return [self loadNewValueForRelationship:relationship forObjectWithID:objectID withContext:context error:error];
+
+}
+
+# pragma mark - Fetching
+
+- (BOOL) shouldExecuteRemoteFetchRequest:(NSFetchRequest *)fetchRequest withContext:(NSManagedObjectContext *)context {
+
+    return YES;
+    
+}
+
+- (void) executeRemoteFetchRequest:(NSFetchRequest *)fetchRequest withContext:(NSManagedObjectContext *)context {
+
+    NSURLRequest *request = [self.HTTPClient requestForFetchRequest:fetchRequest withContext:context];
+    if ([request URL]) {
+        AFHTTPRequestOperation *operation = [self.HTTPClient HTTPRequestOperationWithRequest:request success:^(AFHTTPRequestOperation *operation, id responseObject) {
+            
+            NSArray *representations = [self representationsFromResponseObject:responseObject];
+            
+            [self performUpdatesWithManagedContext:context backingContext:self.backingManagedObjectContext usingBlock:^(NSManagedObjectContext *childManagedContext, NSManagedObjectContext *childBackingContext) {
+            
+                [self importRepresentations:representations ofEntity:fetchRequest.entity fromResponse:operation.response withManagedContext:childManagedContext backingContext:childBackingContext usingBlock:^(NSArray *managedObjects, NSArray *backingObjects) {
+                
+                    [childBackingContext af_saveObjects:backingObjects];
+                    [childBackingContext.parentContext af_performBlockAndWait:^{
+                        [childBackingContext.parentContext save:nil];
+                    }];
+                    [childManagedContext af_refreshObjects:managedObjects];
+                
+                }];
+                
+                [self notifyManagedObjectContext:context aboutRequestOperation:operation forFetchRequest:fetchRequest];
+
+            }];
+            
+        } failure:^(AFHTTPRequestOperation *operation, NSError *error) {
+            NSLog(@"Error: %@", error);
+            [self notifyManagedObjectContext:context aboutRequestOperation:operation forFetchRequest:fetchRequest];
+        }];
+        
+        operation.successCallbackQueue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0);
+        operation.failureCallbackQueue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0);
+        
+        [self notifyManagedObjectContext:context aboutRequestOperation:operation forFetchRequest:fetchRequest];
+        [self.HTTPClient enqueueHTTPRequestOperation:operation];
+    }
+
+}
+
+- (id) executeLocalFetchRequest:(NSFetchRequest *)fetchRequest withContext:(NSManagedObjectContext *)context error:(NSError *__autoreleasing *)error {
+    
+    NSManagedObjectContext *backingContext = self.backingManagedObjectContext;
+    __block NSArray *results = nil;
+    
+    NSFetchRequestResultType resultType = fetchRequest.resultType;
+    switch (resultType) {
+        case NSManagedObjectResultType: {
+            fetchRequest = [fetchRequest copy];
+            fetchRequest.entity = [NSEntityDescription entityForName:fetchRequest.entityName inManagedObjectContext:backingContext];
+            fetchRequest.resultType = NSDictionaryResultType;
+            fetchRequest.propertiesToFetch = @[ kAFIncrementalStoreResourceIdentifierAttributeName ];
+            [backingContext af_performBlockAndWait:^{
+                results = [backingContext executeFetchRequest:fetchRequest error:error];                
+            }];
+            
+            NSMutableArray *mutableObjects = [NSMutableArray arrayWithCapacity:[results count]];
+            for (NSString *resourceIdentifier in [results valueForKeyPath:kAFIncrementalStoreResourceIdentifierAttributeName]) {
+                NSManagedObjectID *objectID = [self objectIDForEntity:fetchRequest.entity withResourceIdentifier:resourceIdentifier];
+                NSManagedObject *object = [context objectWithID:objectID];
+                object.af_resourceIdentifier = resourceIdentifier;
+                [mutableObjects addObject:object];
+            }
+            
+            return mutableObjects;
+        }
+        case NSManagedObjectIDResultType: {
+            __block NSArray *backingObjectIDs;
+            [backingContext af_performBlockAndWait:^{
+                backingObjectIDs = [backingContext executeFetchRequest:fetchRequest error:error];
+            }];
+            NSMutableArray *managedObjectIDs = [NSMutableArray arrayWithCapacity:[backingObjectIDs count]];
+            
+            for (NSManagedObjectID *backingObjectID in backingObjectIDs) {
+                NSManagedObject *backingObject = [backingContext objectWithID:backingObjectID];
+                NSString *resourceID = [backingObject valueForKey:kAFIncrementalStoreResourceIdentifierAttributeName];
+                [managedObjectIDs addObject:[self objectIDForEntity:fetchRequest.entity withResourceIdentifier:resourceID]];
+            }
+            
+            return managedObjectIDs;
+        }
+        case NSDictionaryResultType:
+        case NSCountResultType: {
+            [backingContext af_performBlockAndWait:^{
+                results = [backingContext executeFetchRequest:fetchRequest error:error];                
+            }];
+            return results;
+        }
+        default: {
+            return nil;
+        }
+    }
+}
+
+# pragma mark - Values
+
+- (BOOL) shouldRetrieveRemoteValuesForObjectWithID:(NSManagedObjectID *)objectID withContext:(NSManagedObjectContext *)context {
+
+    if ([context af_ignoringCount])
+        return NO;
+
+    NSString *resourceIdentifier = [self referenceObjectForObjectID:objectID];
+    if (!resourceIdentifier || (resourceIdentifier && ![resourceIdentifier isKindOfClass:[NSString class]]))
+        return NO;
+    
+    AFHTTPClient<AFIncrementalStoreHTTPClient> *HTTPClient = self.HTTPClient;
+    if (!HTTPClient)
+        return NO;
+    
+    if (![HTTPClient respondsToSelector:@selector(shouldFetchRemoteAttributeValuesForObjectWithID:inManagedObjectContext:)])
+        return NO;
+    
+    return [HTTPClient shouldFetchRemoteAttributeValuesForObjectWithID:objectID inManagedObjectContext:context];
+
+}
+
+- (void) retrieveRemoteValueForObjectWithID:(NSManagedObjectID *)objectID context:(NSManagedObjectContext *)context options:(NSDictionary *)options {
+
+    NSDate *lastModified = options[kAFIncrementalStoreLastModifiedAttributeName];
+    
+    NSManagedObjectContext *childContext = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+    childContext.parentContext = context;
+    childContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy;
+    
+    NSMutableURLRequest *request = [self.HTTPClient requestWithMethod:@"GET" pathForObjectWithID:objectID withContext:context];
+    
+    if ([request URL]) {
+        if (lastModified) {
+            [request setValue:[lastModified description] forHTTPHeaderField:@"If-Modified-Since"];
+        }
+        
+        AFHTTPRequestOperation *operation = [self.HTTPClient HTTPRequestOperationWithRequest:request success:^(AFHTTPRequestOperation *operation, NSDictionary *representation) {
+            
+            NSManagedObject *managedObject = [childContext existingObjectWithID:objectID error:nil];
+            
+            NSDictionary *attributeValues = [self.HTTPClient attributesForRepresentation:representation ofEntity:managedObject.entity fromResponse:operation.response];
+            
+            [managedObject setValuesForKeysWithDictionary:attributeValues];
+            
+            NSEntityDescription *entity = objectID.entity;
+            NSString *resourceID = [self referenceObjectForObjectID:objectID];
+            NSManagedObjectContext *backingContext = self.backingManagedObjectContext;
+            
+            [backingContext performBlock:^{
+                
+                NSError *backingObjectIDError = nil;
+                NSManagedObjectID *backingObjectID = [self backingObjectIDForEntity:entity resourceIdentifier:resourceID inContext:backingContext error:&backingObjectIDError];
+
+                NSManagedObject *backingObject = [backingContext existingObjectWithID:backingObjectID error:nil];
+                [backingObject setValuesForKeysWithDictionary:attributeValues];
+                
+                [backingContext af_saveObjects:@[ backingObject ]];
+                [childContext af_refreshObjects:@[ managedObject ]];
+                
+            }];
+            
+        } failure:^(AFHTTPRequestOperation *operation, NSError *error) {
+            
+            NSLog(@"%s: %@, %@", __PRETTY_FUNCTION__, operation, error);
+            
+        }];
+        
+        [self.HTTPClient enqueueHTTPRequestOperation:operation];
+
+    }
+
+}
+
+- (NSIncrementalStoreNode *) retrieveLocalValuesForObjectWithID:(NSManagedObjectID *)objectID context:(NSManagedObjectContext *)context error:(NSError **)error {
+
+    NSFetchRequest *fetchRequest = [[NSFetchRequest alloc] initWithEntityName:objectID.entity.name];
+    fetchRequest.resultType = NSDictionaryResultType;
+    fetchRequest.fetchLimit = 1;
+    fetchRequest.includesSubentities = NO;
+    fetchRequest.propertiesToFetch = [[objectID.entity.attributesByName allKeys] arrayByAddingObject:kAFIncrementalStoreResourceIdentifierAttributeName];
+    fetchRequest.predicate = [NSPredicate predicateWithFormat:@"%K = %@", kAFIncrementalStoreResourceIdentifierAttributeName, [self referenceObjectForObjectID:objectID]];
+
+    __block NSArray *results;
+    NSManagedObjectContext *backingContext = self.backingManagedObjectContext;
+    [backingContext af_performBlockAndWait:^{
+        results = [backingContext executeFetchRequest:fetchRequest error:error];
+    }];
+
+    NSDictionary *attributeValues = [results lastObject] ?: [NSDictionary dictionary];
+    NSIncrementalStoreNode *node = [[NSIncrementalStoreNode alloc] initWithObjectID:objectID withValues:attributeValues version:1];
+    
+    return node;
+
+}
+
+# pragma mark - Relationships
+
+- (BOOL) shouldRetrieveRemoteValueForRelationship:(NSRelationshipDescription *)relationship forObjectWithID:(NSManagedObjectID *)objectID withContext:(NSManagedObjectContext *)context {
+
+    if ([context af_ignoringCount])
+        return NO;
+
+    NSString *resourceIdentifier = [self referenceObjectForObjectID:objectID];
+    if (!resourceIdentifier || (resourceIdentifier && ![resourceIdentifier isKindOfClass:[NSString class]]))
+        return NO;
+    
+    AFHTTPClient<AFIncrementalStoreHTTPClient> *HTTPClient = self.HTTPClient;
+    if (!HTTPClient)
+        return NO;
+    
+    if (![HTTPClient respondsToSelector:@selector(shouldFetchRemoteValuesForRelationship:forObjectWithID:inManagedObjectContext:)])
+        return NO;
+    
+    return [HTTPClient shouldFetchRemoteValuesForRelationship:relationship forObjectWithID:objectID inManagedObjectContext:context];
+
+}
+
+- (id) loadNewValueForRelationship:(NSRelationshipDescription *)relationship forObjectWithID:(NSManagedObjectID *)objectID withContext:(NSManagedObjectContext *)context error:(NSError *__autoreleasing *)error {
+    
+    NSEntityDescription *entity = objectID.entity;
+    NSString *resourceIdentifier = [self referenceObjectForObjectID:objectID];
+    NSManagedObjectContext *backingContext = self.backingManagedObjectContext;
+    
+    NSManagedObjectID *backingObjectID = [self backingObjectIDForEntity:entity resourceIdentifier:resourceIdentifier inContext:backingContext error:nil];
+    
+    NSManagedObject *backingObject = (backingObjectID == nil) ? nil : [backingContext existingObjectWithID:backingObjectID error:nil];
+    
+    if (backingObject && ![backingObject hasChanges]) {
+        id backingRelationshipObject = [backingObject valueForKeyPath:relationship.name];
+        if ([relationship isToMany]) {
+            NSMutableArray *mutableObjects = [NSMutableArray arrayWithCapacity:[backingRelationshipObject count]];
+            for (NSString *resourceIdentifier in [backingRelationshipObject valueForKeyPath:kAFIncrementalStoreResourceIdentifierAttributeName]) {
+                NSManagedObjectID *objectID = [self objectIDForEntity:relationship.destinationEntity withResourceIdentifier:resourceIdentifier];
+                [mutableObjects addObject:objectID];
+            }
+                            
+            return mutableObjects;            
+        } else {
+            NSString *resourceIdentifier = [backingRelationshipObject valueForKeyPath:kAFIncrementalStoreResourceIdentifierAttributeName];
+            NSManagedObjectID *objectID = [self objectIDForEntity:relationship.destinationEntity withResourceIdentifier:resourceIdentifier];
+            
+            return objectID ?: [NSNull null];
+        }
+    } else {
+        if ([relationship isToMany]) {
+            return [NSArray array];
+        } else {
+            return [NSNull null];
+        }
+    }
+    
+}
+
+- (void) fetchNewValueForRelationship:(NSRelationshipDescription *)relationship forObjectWithID:(NSManagedObjectID *)objectID withContext:(NSManagedObjectContext *)context {
+    
+    NSCParameterAssert(relationship);
+    NSCParameterAssert(objectID);
+    NSCParameterAssert(context);
+    
+    if (![self shouldRetrieveRemoteValueForRelationship:relationship forObjectWithID:objectID withContext:context]) {
+        return;
+    }
+    
+    NSURLRequest *request = [self.HTTPClient requestWithMethod:@"GET" pathForRelationship:relationship forObjectWithID:objectID withContext:context];
+    
+    if (!request.URL)
+        return;
+    
+    NSManagedObject *existingObject = [context existingObjectWithID:objectID error:nil];
+    if (existingObject && [existingObject hasChanges])
+        return;
+    
+    AFHTTPRequestOperation *operation = [self.HTTPClient HTTPRequestOperationWithRequest:request success:^(AFHTTPRequestOperation *operation, id responseObject) {
+    
+        NSArray *representations = [self representationsFromResponseObject:responseObject];
+        if (![representations count]) {
+            return;
+        }
+        
+        [self performUpdatesWithManagedContext:context backingContext:self.backingManagedObjectContext usingBlock:^(NSManagedObjectContext *childManagedContext, NSManagedObjectContext *childBackingContext) {
+            
+            [self importRepresentations:representations ofEntity:relationship.destinationEntity fromResponse:operation.response withManagedContext:childManagedContext backingContext:childBackingContext usingBlock:^(NSArray *managedObjects, NSArray *backingObjects) {
+                
+                NSManagedObject *managedObject = [childManagedContext objectWithID:objectID];
+                NSString *referenceObject = [self referenceObjectForObjectID:objectID];
+                NSManagedObjectID *backingObjectID = [self backingObjectIDForEntity:objectID.entity resourceIdentifier:referenceObject inContext:childBackingContext error:nil];
+                
+                NSManagedObject *backingObject = [childBackingContext existingObjectWithID:backingObjectID error:nil];
+                
+                [managedObject af_setValue:managedObjects forRelationship:relationship];
+                [backingObject af_setValue:backingObjects forRelationship:relationship];
+                
+                [childBackingContext af_saveObjects:backingObjects];
+                [childBackingContext.parentContext af_performBlockAndWait:^{
+                    [childBackingContext.parentContext save:nil];
+                }];
+                [childManagedContext af_refreshObjects:managedObjects];
+                
+            }];           
+            
+        }];
+        
+    } failure:^(AFHTTPRequestOperation *operation, NSError *error) {
+        
+        NSLog(@"Error: %@, %@", operation, error);
+        
+    }];
+    
+    operation.successCallbackQueue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0);
+    operation.failureCallbackQueue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0);
+
+    [self.HTTPClient enqueueHTTPRequestOperation:operation];
+
+}
+
+# pragma mark - Saving
+
+- (BOOL) shouldExecuteRemoteSaveChangesRequest:(NSSaveChangesRequest *)saveChangesRequest withContext:(NSManagedObjectContext *)context {
+
+    return YES;
+
+}
+
+- (void) executeRemoteSaveChangesRequest:(NSSaveChangesRequest *)saveChangesRequest withContext:(NSManagedObjectContext *)context {
+
+    //  TBD: AFIncrementalStore should subclass NSOperation directly, or provide a async harness that invokes customer-provided blocks, and allow overriding methods that emit the blocks and blocks that call callback blocks.  Give all the save components a scratchpad to play on, and if everything finished, store everything in a batch.  A potential implementation will involve a change request tree that gets appended by each save operation (emitted by -operationsForSaveChangesRequest: operations).
+    
+    //  This is related to the Undo Management problem: the incremental store does asynchronous data fulfillment, so if the customer changed some more data and things do not go through, we can not even revert.
+
+    NSArray *operations = [self operationsForSaveChangesRequest:saveChangesRequest];
+    if ([operations count]) {
+    
+        [self notifyManagedObjectContext:context aboutRequestOperations:operations forSaveChangesRequest:saveChangesRequest];
+        
+        [self.HTTPClient enqueueBatchOfHTTPRequestOperations:operations progressBlock:^(NSUInteger numberOfFinishedOperations, NSUInteger totalNumberOfOperations) {
+            
+            //  ?
+            
+        } completionBlock:^(NSArray *operations) {
+        
+            [self notifyManagedObjectContext:context aboutRequestOperations:operations forSaveChangesRequest:saveChangesRequest];
+            
+        }];
+    
+    }
+
+}
+
+- (id) executeLocalSaveChangesRequest:(NSSaveChangesRequest *)saveChangesRequest withContext:(NSManagedObjectContext *)context error:(NSError *__autoreleasing *)error {
+
+    return @[];
+
+}
+
+- (NSArray *) operationsForSaveChangesRequest:(NSSaveChangesRequest *)saveChangesRequest {
+    
+    NSMutableArray *ops = [NSMutableArray array];
+    
+    NSSet *insertedObjects = [saveChangesRequest insertedObjects];
+    NSSet *updatedObjects = [saveChangesRequest updatedObjects];
+    NSSet *deletedObjects = [saveChangesRequest deletedObjects];
+    
+    for (NSManagedObject *insertedObject in insertedObjects)
+        [ops addObjectsFromArray:[self operationsForInsertedObject:insertedObject]];
+    
+    for (NSManagedObject *updatedObject in updatedObjects)
+        [ops addObjectsFromArray:[self operationsForUpdatedObject:updatedObject]];
+
+    for (NSManagedObject *deletedObject in deletedObjects)
+        [ops addObjectsFromArray:[self operationsForDeletedObject:deletedObject]];
+    
+    return ops;
+    
+}
+
+- (NSArray *) operationsForInsertedObject:(NSManagedObject *)insertedObject {
+
+    AFHTTPClient<AFIncrementalStoreHTTPClient> *httpClient = self.HTTPClient;
+    NSManagedObjectContext *backingContext = self.backingManagedObjectContext;
+    
+    if (![httpClient respondsToSelector:@selector(requestForInsertedObject:)])
+        return @[];
+
+    NSURLRequest *request = [httpClient requestForInsertedObject:insertedObject];
+    if (!request)
+        return @[];
+    
+    AFHTTPRequestOperation *operation = [httpClient HTTPRequestOperationWithRequest:request success:^(AFHTTPRequestOperation *operation, id responseObject) {
+        
+        NSEntityDescription *entity = insertedObject.entity;
+        NSHTTPURLResponse *response = operation.response;
+        
+        NSString *resourceIdentifier = [self.HTTPClient resourceIdentifierForRepresentation:responseObject ofEntity:entity fromResponse:response];
+
+        NSDictionary *attributes = [self.HTTPClient attributesForRepresentation:responseObject ofEntity:entity fromResponse:response];
+        
+        NSManagedObjectID *objectID = [self objectIDForEntity:[insertedObject entity] withResourceIdentifier:resourceIdentifier];
+        insertedObject.af_resourceIdentifier = resourceIdentifier;
+        [insertedObject setValuesForKeysWithDictionary:attributes];
+        
+        __block NSManagedObject *backingObject = nil;
+        
+        if (objectID) {
+            [backingContext af_performBlockAndWait:^{
+                backingObject = [backingContext existingObjectWithID:objectID error:nil];
+            }];
+        }
+        
+        if (!backingObject) {
+            backingObject = [NSEntityDescription insertNewObjectForEntityForName:insertedObject.entity.name inManagedObjectContext:backingContext];
+            [backingObject.managedObjectContext obtainPermanentIDsForObjects:@[ backingObject ] error:nil];
+        }
+        
+        NSCParameterAssert(backingObject);
+        NSCParameterAssert(backingObject.objectID);
+        NSCParameterAssert(![backingObject.objectID isTemporaryID]);
+        
+        [backingObject setValue:resourceIdentifier forKey:kAFIncrementalStoreResourceIdentifierAttributeName];
+        [backingObject setValuesForKeysWithDictionary:attributes];
+        
+        [self updateRelationshipsOfBackingObject:backingObject withRelationshipsOfManagedObject:insertedObject];
+                        
+        [self obtainPermanentIDForTemporaryObject:insertedObject withResourceIdentifier:resourceIdentifier];
+        
+        [self assertManagedObject:insertedObject hasAssociationsEquivalentToBackingObject:backingObject];
+        
+        [self performUpdatesWithManagedContext:insertedObject.managedObjectContext backingContext:self.backingManagedObjectContext usingBlock:^(NSManagedObjectContext *childManagedContext, NSManagedObjectContext *childBackingContext) {
+            
+            [self importRepresentations:@[ responseObject ] ofEntity:entity fromResponse:operation.response withManagedContext:childManagedContext backingContext:childBackingContext usingBlock:^(NSArray *managedObjects, NSArray *backingObjects) {
+                
+                NSCParameterAssert([managedObjects count] == 1);
+                NSCParameterAssert([backingObjects count] == 1);
+                
+                [childBackingContext af_saveObjects:backingObjects];
+                [childBackingContext.parentContext af_performBlockAndWait:^{
+                    [childBackingContext.parentContext save:nil];
+                }];
+                [childManagedContext af_refreshObjects:managedObjects];
+                
+            }];
+            
+        }];
+                        
+    } failure:^(AFHTTPRequestOperation *operation, NSError *error) {
+        
+        NSLog(@"Insert Error: %@", error);
+        
+    }];
+    
+    return @[ operation ];
+
+}
+
+- (NSArray *) operationsForUpdatedObject:(NSManagedObject *)updatedObject {
+
+    AFHTTPClient<AFIncrementalStoreHTTPClient> *httpClient = self.HTTPClient;
+    NSManagedObjectContext *backingContext = self.backingManagedObjectContext;
+    
+    if (![httpClient respondsToSelector:@selector(requestForUpdatedObject:)])
+        return @[];
+    
+    NSURLRequest *request = [httpClient requestForUpdatedObject:updatedObject];
+    if (!request)
+        return nil;
+    
+    AFHTTPRequestOperation *operation = [httpClient HTTPRequestOperationWithRequest:request success:^(AFHTTPRequestOperation *operation, id responseObject) {
+    
+        [updatedObject setValuesForKeysWithDictionary:[httpClient attributesForRepresentation:responseObject ofEntity:updatedObject.entity fromResponse:operation.response]];
+        
+        [backingContext af_performBlockAndWait:^{
+            NSManagedObject *backingObject = [backingContext existingObjectWithID:updatedObject.objectID error:nil];
+            [backingObject setValuesForKeysWithDictionary:[updatedObject dictionaryWithValuesForKeys:nil]];
+            [backingContext save:nil];
+        }];
+        
+    } failure:^(AFHTTPRequestOperation *operation, NSError *error) {
+        
+        NSLog(@"Update Error: %@", error);
+        
+    }];
+    
+    return @[ operation ];
+
+}
+
+- (NSArray *) operationsForDeletedObject:(NSManagedObject *)deletedObject {
+
+    AFHTTPClient<AFIncrementalStoreHTTPClient> *httpClient = self.HTTPClient;
+    NSManagedObjectContext *backingContext = self.backingManagedObjectContext;
+    
+    if (![self.HTTPClient respondsToSelector:@selector(requestForDeletedObject:)])
+        return @[];
+    
+    NSURLRequest *request = [httpClient requestForDeletedObject:deletedObject];
+    if (!request)
+        return nil;
+    
+    AFHTTPRequestOperation *operation = [self.HTTPClient HTTPRequestOperationWithRequest:request success:^(AFHTTPRequestOperation *operation, id responseObject) {
+    
+        [backingContext af_performBlockAndWait:^{
+            
+            NSManagedObject *backingObject = [backingContext existingObjectWithID:deletedObject.objectID error:nil];
+            [backingContext deleteObject:backingObject];
+            [backingContext save:nil];
+            
+        }];
+        
+    } failure:^(AFHTTPRequestOperation *operation, NSError *error) {
+        
+        NSLog(@"Delete Error: %@", error);
+        
+    }];
+    
+    return @[ operation ];
+
+}
+
+# pragma mark - Updates
+
+- (void) performUpdatesWithManagedContext:(NSManagedObjectContext *)managedContext backingContext:(NSManagedObjectContext *)backingContext usingBlock:(void(^)(NSManagedObjectContext *childManagedContext, NSManagedObjectContext *childBackingContext))block {
+    
+    NSCParameterAssert(managedContext);
+    NSCParameterAssert(managedContext.persistentStoreCoordinator == self.persistentStoreCoordinator);
+    NSCParameterAssert(backingContext);
+    NSCParameterAssert(backingContext.persistentStoreCoordinator == self.backingPersistentStoreCoordinator);
+    NSCParameterAssert(block);
+    
+    __weak typeof(managedContext) wManagedContext = managedContext;
+    __weak typeof(backingContext) wBackingContext = backingContext;
+    
+    [self.operationQueue addOperation:[self newAsyncOperationWithWorker:^(RAAsyncOperationCallback callback) {
+        
+        if (!wManagedContext || !wBackingContext) {
+            callback((id)kCFBooleanFalse);
+            return;
+        }
+        
+        NSManagedObjectContext *childManagedContext = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSConfinementConcurrencyType];
+        childManagedContext.parentContext = wManagedContext;
+        childManagedContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy;
+        
+        NSManagedObjectContext *childBackingContext = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSConfinementConcurrencyType];
+        childBackingContext.parentContext = wBackingContext;
+        childBackingContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy;
+        
+        block(childManagedContext, childBackingContext);
+        callback((id)kCFBooleanTrue);
+
+    } callback:nil]];
+    
+}
+
+- (void) updateRelationshipsOfBackingObject:(NSManagedObject *)backingObject withRelationshipsOfManagedObject:(NSManagedObject *)insertedObject {
+    
+    NSManagedObjectContext *backingContext = backingObject.managedObjectContext;
+    
+    [[insertedObject.entity relationshipsByName] enumerateKeysAndObjectsUsingBlock:^(NSString *name, NSRelationshipDescription *relationship, BOOL *stop) {
+    
+        id requestedRelationship = [insertedObject valueForKey:name];
+        if (!requestedRelationship)
+            return;
+        
+        id providedRelationship = nil;
+        
+        NSManagedObject * (^backingObjectForManagedObject)(NSManagedObject *) = ^ (NSManagedObject *incomingObject) {
+        
+            return [self backingObjectInContext:backingContext forManagedObject:incomingObject];
+        
+        };
+        
+        if ([relationship isToMany]) {
+        
+            if ([relationship isOrdered]) {
+            
+                providedRelationship = [NSMutableOrderedSet orderedSet];
+                for (NSManagedObject *relationshipObject in (NSOrderedSet *)requestedRelationship) {
+                    NSManagedObject *relatedObject = backingObjectForManagedObject(relationshipObject);
+                    if (relatedObject) {
+                        [(NSMutableOrderedSet *)providedRelationship addObject:relatedObject];
+                    } else {
+                        NSLog(@"%s: lost track of relationship object %@", __PRETTY_FUNCTION__, relationshipObject);
+                    }
+                }
+            
+            } else {
+            
+                providedRelationship = [NSMutableSet set];
+                for (NSManagedObject *relationshipObject in (NSSet *)requestedRelationship) {
+                    NSManagedObject *relatedObject = backingObjectForManagedObject(relationshipObject);
+                    if (relatedObject) {
+                        [(NSMutableSet *)providedRelationship addObject:relatedObject];
+                    } else {
+                        NSLog(@"%s: lost track of relationship object %@", __PRETTY_FUNCTION__, relationshipObject);
+                    }
+                }
+                
+            }
+        
+        } else {
+        
+            NSManagedObject *relationshipObject = (NSManagedObject *)requestedRelationship;
+            NSManagedObject *relatedObject = backingObjectForManagedObject(relationshipObject);
+            if (relatedObject) {
+                providedRelationship = relatedObject;
+            } else {
+                NSLog(@"%s: lost track of relationship object %@", __PRETTY_FUNCTION__, relationshipObject);
+            }
+        
+        }
+        
+        [backingObject setValue:providedRelationship forKey:name];
+        
+    }];
+
+}
+
+# pragma mark - Object Identity
+
+- (NSArray *) obtainPermanentIDsForObjects:(NSArray *)array error:(NSError **)error {
+    
+    NSMutableArray *mutablePermanentIDs = [NSMutableArray arrayWithCapacity:[array count]];
+    for (NSManagedObject *managedObject in array) {
+        NSManagedObjectID *managedObjectID = managedObject.objectID;
+        if ([managedObjectID isTemporaryID] && managedObject.af_resourceIdentifier) {
+            NSManagedObjectID *objectID = [self objectIDForEntity:managedObject.entity withResourceIdentifier:managedObject.af_resourceIdentifier];
+            [mutablePermanentIDs addObject:objectID];
+        } else {
+            [mutablePermanentIDs addObject:managedObjectID];
+        }
+    }
+    
+    return mutablePermanentIDs;
+    
+}
+
+- (void) obtainPermanentIDForTemporaryObject:(NSManagedObject *)object withResourceIdentifier:(NSString *)resourceIdentifier {
+    
+    NSCParameterAssert(![object af_isPermanent]);
+    
+    object.af_resourceIdentifier = resourceIdentifier;
+    
+    [object willChangeValueForKey:@"objectID"];
+    
+    NSError *permanentIDsObtainingError = nil;
+    BOOL didObtainPermanentIDs = [object.managedObjectContext obtainPermanentIDsForObjects:[NSArray arrayWithObject:object] error:&permanentIDsObtainingError];
+    
+    if (!didObtainPermanentIDs)
+        NSLog(@"%s: %@", __PRETTY_FUNCTION__, permanentIDsObtainingError);
+
+    [object didChangeValueForKey:@"objectID"];
+    
+    NSCParameterAssert([object af_isPermanent]);
+
+}
+
+- (void) managedObjectContextDidRegisterObjectsWithIDs:(NSArray *)objectIDs {
+
+    [super managedObjectContextDidRegisterObjectsWithIDs:objectIDs];
+    
+    for (NSManagedObjectID *objectID in objectIDs) {
+        
+        id key = [self referenceObjectForObjectID:objectID];
+        NSString *entityName = objectID.entity.name;
+        NSMutableDictionary *objectIDsByResourceIdentifier = _registeredObjectIDsByResourceIdentifier[entityName];
+        if (!objectIDsByResourceIdentifier) {
+            objectIDsByResourceIdentifier = [NSMutableDictionary dictionary];
+            _registeredObjectIDsByResourceIdentifier[entityName] = objectIDsByResourceIdentifier;
+        }
+        
+        objectIDsByResourceIdentifier[key] = objectID;
+        
+    }
+    
+}
+
+- (void) managedObjectContextDidUnregisterObjectsWithIDs:(NSArray *)objectIDs {
+    
+    [super managedObjectContextDidUnregisterObjectsWithIDs:objectIDs];
+    
+    for (NSManagedObjectID *objectID in objectIDs) {
+        
+        id key = [self referenceObjectForObjectID:objectID];
+        NSString *entityName = objectID.entity.name;
+        
+        [_registeredObjectIDsByResourceIdentifier[entityName] removeObjectForKey:key];
+        
+    }
+    
+}
 
 - (NSManagedObjectID *) objectIDForEntity:(NSEntityDescription *)entity withResourceIdentifier:(NSString *)resourceIdentifier {
     
@@ -218,22 +1015,41 @@ NSString * const kAFIncrementalStoreLastModifiedAttributeName = @"__af_lastModif
 
 }
 
-- (NSManagedObjectID *) backingObjectIDForEntity:(NSEntityDescription *)entity resourceIdentifier:(NSString *)resourceIdentifier inContext:(NSManagedObjectContext *)context error:(NSError **)outError {
+#pragma mark - Notifications
 
-    NSCParameterAssert(entity);
-    NSCParameterAssert(resourceIdentifier);
-    NSCParameterAssert([context af_isDescendantOfContext:self.backingManagedObjectContext]);
+- (void) notifyManagedObjectContext:(NSManagedObjectContext *)context aboutRequestOperation:(AFHTTPRequestOperation *)operation forFetchRequest:(NSFetchRequest *)fetchRequest {
     
-    NSFetchRequest *fetchRequest = [self fetchRequestForObjectIDWithEntity:entity resourceIdentifier:resourceIdentifier];
+    NSString *notificationName = [operation isFinished] ?
+        AFIncrementalStoreContextDidFetchRemoteValues :
+        AFIncrementalStoreContextWillFetchRemoteValues;
+
+    NSDictionary *userInfo = @{
+        AFIncrementalStoreRequestOperationKey: operation,
+        AFIncrementalStorePersistentStoreRequestKey: fetchRequest
+    };
     
-    __block NSArray *results = nil;
-    [context af_performBlockAndWait:^{
-       results = [context executeFetchRequest:fetchRequest error:outError];
-    }];
-    
-    return [results lastObject];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        
+        [[NSNotificationCenter defaultCenter] postNotificationName:notificationName object:context userInfo:userInfo];
+        
+    });
 
 }
+
+- (void)notifyManagedObjectContext:(NSManagedObjectContext *)context
+            aboutRequestOperations:(NSArray *)operations
+             forSaveChangesRequest:(NSSaveChangesRequest *)saveChangesRequest
+{
+    NSString *notificationName = [[operations lastObject] isFinished] ? AFIncrementalStoreContextDidSaveRemoteValues : AFIncrementalStoreContextWillSaveRemoteValues;
+    
+    NSMutableDictionary *userInfo = [NSMutableDictionary dictionary];
+    [userInfo setObject:operations forKey:AFIncrementalStoreRequestOperationKey];
+    [userInfo setObject:saveChangesRequest forKey:AFIncrementalStorePersistentStoreRequestKey];
+
+    [[NSNotificationCenter defaultCenter] postNotificationName:notificationName object:context userInfo:userInfo];
+}
+
+# pragma mark - Importing
 
 - (void) importRepresentations:(id)representationOrArrayOfRepresentations ofEntity:(NSEntityDescription *)entity fromResponse:(NSHTTPURLResponse *)response withManagedContext:(NSManagedObjectContext *)managedContext backingContext:(NSManagedObjectContext *)backingContext usingBlock:(void (^)(NSArray *managedObjects, NSArray *backingObjects))completionBlock {
     
@@ -327,236 +1143,21 @@ NSString * const kAFIncrementalStoreLastModifiedAttributeName = @"__af_lastModif
     
 }
 
-- (id) executeRequest:(NSPersistentStoreRequest *)persistentStoreRequest withContext:(NSManagedObjectContext *)context error:(NSError *__autoreleasing *)error {
+- (NSArray *) representationsFromResponseObject:(id)responseObject {
+
+    id representationOrArrayOfRepresentations = [self.HTTPClient representationOrArrayOfRepresentationsFromResponseObject:responseObject];
     
-    NSPersistentStoreRequestType type = persistentStoreRequest.requestType;
+    if ([representationOrArrayOfRepresentations isKindOfClass:[NSArray class]])
+        return representationOrArrayOfRepresentations;
     
-    if (type == NSFetchRequestType) {
-        
-        NSFetchRequest *fetchRequest = (NSFetchRequest *)persistentStoreRequest;
-        NSCParameterAssert([fetchRequest isKindOfClass:[NSFetchRequest class]]);
-        
-        return [self executeFetchRequest:fetchRequest withContext:context error:error];
-        
-    } else if (type == NSSaveRequestType) {
-        
-        NSSaveChangesRequest *saveChangesRequest = (NSSaveChangesRequest *)persistentStoreRequest;
-        NSCParameterAssert([saveChangesRequest isKindOfClass:[NSSaveChangesRequest class]]);
-        
-        return [self executeSaveChangesRequest:saveChangesRequest withContext:context error:error];
-        
-    } else {
+    if ([representationOrArrayOfRepresentations isKindOfClass:[NSDictionary class]])
+        return @[ representationOrArrayOfRepresentations ];
     
-        if (error) {
-            *error = [NSError errorWithDomain:AFNetworkingErrorDomain code:0 userInfo:@{
-                NSLocalizedDescriptionKey: [NSString stringWithFormat:@"Unsupported NSFetchRequestResultType %d", persistentStoreRequest.requestType]
-            }];
-        }
-        
-        return nil;
-        
-    }
+    return nil;
     
 }
 
-- (NSManagedObject *) backingObjectInContext:(NSManagedObjectContext *)backingContext forManagedObject:(NSManagedObject *)managedObject {
-
-    NSEntityDescription *backingEntity = [NSEntityDescription entityForName:managedObject.entity.name inManagedObjectContext:backingContext];
-    NSString *resourceIdentifier = managedObject.af_resourceIdentifier;
-    
-    if (!backingEntity || !resourceIdentifier)
-        return (NSManagedObject *)nil;
-    
-    NSManagedObjectID *objectID = [self backingObjectIDForEntity:backingEntity resourceIdentifier:resourceIdentifier inContext:backingContext error:nil];
-    
-    if (!objectID)
-        return (NSManagedObject *)nil;
-    
-    return [backingContext existingObjectWithID:objectID error:nil];;
-
-}
-
-- (BOOL) shouldExecuteRemoteFetchRequest:(NSFetchRequest *)fetchRequest withContext:(NSManagedObjectContext *)context {
-
-    return YES;
-    
-}
-
-- (id)executeFetchRequest:(NSFetchRequest *)fetchRequest
-              withContext:(NSManagedObjectContext *)context
-                    error:(NSError *__autoreleasing *)error
-{
-    NSURLRequest *request = [self.HTTPClient requestForFetchRequest:fetchRequest withContext:context];
-    if ([request URL]) {
-        AFHTTPRequestOperation *operation = [self.HTTPClient HTTPRequestOperationWithRequest:request success:^(AFHTTPRequestOperation *operation, id responseObject) {
-            
-            NSArray *representations = [self representationsFromResponseObject:responseObject];
-            
-            [self performUpdatesWithManagedContext:context backingContext:self.backingManagedObjectContext usingBlock:^(NSManagedObjectContext *childManagedContext, NSManagedObjectContext *childBackingContext) {
-            
-                [self importRepresentations:representations ofEntity:fetchRequest.entity fromResponse:operation.response withManagedContext:childManagedContext backingContext:childBackingContext usingBlock:^(NSArray *managedObjects, NSArray *backingObjects) {
-                
-                    [self ra_performBlock:^{
-                        
-                        [childBackingContext af_saveObjects:backingObjects];
-                        [childBackingContext.parentContext save:nil];
-                        [childManagedContext af_refreshObjects:managedObjects];
-                                    
-                    }];
-                
-                }];
-                
-                [self notifyManagedObjectContext:context aboutRequestOperation:operation forFetchRequest:fetchRequest];
-
-            }];
-            
-        } failure:^(AFHTTPRequestOperation *operation, NSError *error) {
-            NSLog(@"Error: %@", error);
-            [self notifyManagedObjectContext:context aboutRequestOperation:operation forFetchRequest:fetchRequest];
-        }];
-        
-        operation.successCallbackQueue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0);
-        operation.failureCallbackQueue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0);
-        
-        [self notifyManagedObjectContext:context aboutRequestOperation:operation forFetchRequest:fetchRequest];
-        [self.HTTPClient enqueueHTTPRequestOperation:operation];
-    }
-    
-    NSManagedObjectContext *backingContext = self.backingManagedObjectContext;
-    __block NSArray *results = nil;
-    
-    NSFetchRequestResultType resultType = fetchRequest.resultType;
-    switch (resultType) {
-        case NSManagedObjectResultType: {
-            fetchRequest = [fetchRequest copy];
-            fetchRequest.entity = [NSEntityDescription entityForName:fetchRequest.entityName inManagedObjectContext:backingContext];
-            fetchRequest.resultType = NSDictionaryResultType;
-            fetchRequest.propertiesToFetch = @[ kAFIncrementalStoreResourceIdentifierAttributeName ];
-            [backingContext af_performBlockAndWait:^{
-                results = [backingContext executeFetchRequest:fetchRequest error:error];                
-            }];
-            
-            NSMutableArray *mutableObjects = [NSMutableArray arrayWithCapacity:[results count]];
-            for (NSString *resourceIdentifier in [results valueForKeyPath:kAFIncrementalStoreResourceIdentifierAttributeName]) {
-                NSManagedObjectID *objectID = [self objectIDForEntity:fetchRequest.entity withResourceIdentifier:resourceIdentifier];
-                NSManagedObject *object = [context objectWithID:objectID];
-                object.af_resourceIdentifier = resourceIdentifier;
-                [mutableObjects addObject:object];
-            }
-            
-            return mutableObjects;
-        }
-        case NSManagedObjectIDResultType: {
-            __block NSArray *backingObjectIDs;
-            [backingContext af_performBlockAndWait:^{
-                backingObjectIDs = [backingContext executeFetchRequest:fetchRequest error:error];
-            }];
-            NSMutableArray *managedObjectIDs = [NSMutableArray arrayWithCapacity:[backingObjectIDs count]];
-            
-            for (NSManagedObjectID *backingObjectID in backingObjectIDs) {
-                NSManagedObject *backingObject = [backingContext objectWithID:backingObjectID];
-                NSString *resourceID = [backingObject valueForKey:kAFIncrementalStoreResourceIdentifierAttributeName];
-                [managedObjectIDs addObject:[self objectIDForEntity:fetchRequest.entity withResourceIdentifier:resourceID]];
-            }
-            
-            return managedObjectIDs;
-        }
-        case NSDictionaryResultType:
-        case NSCountResultType: {
-            [backingContext af_performBlockAndWait:^{
-                results = [backingContext executeFetchRequest:fetchRequest error:error];                
-            }];
-            return results;
-        }
-        default: {
-            return nil;
-        }
-    }
-}
-
-- (void) obtainPermanentIDForTemporaryObject:(NSManagedObject *)object withResourceIdentifier:(NSString *)resourceIdentifier {
-    
-    NSCParameterAssert(![object af_isPermanent]);
-    
-    object.af_resourceIdentifier = resourceIdentifier;
-    
-    [object willChangeValueForKey:@"objectID"];
-    
-    NSError *permanentIDsObtainingError = nil;
-    BOOL didObtainPermanentIDs = [object.managedObjectContext obtainPermanentIDsForObjects:[NSArray arrayWithObject:object] error:&permanentIDsObtainingError];
-    
-    if (!didObtainPermanentIDs)
-        NSLog(@"%s: %@", __PRETTY_FUNCTION__, permanentIDsObtainingError);
-
-    [object didChangeValueForKey:@"objectID"];
-    
-    NSCParameterAssert([object af_isPermanent]);
-
-}
-
-- (void) updateRelationshipsOfBackingObject:(NSManagedObject *)backingObject withRelationshipsOfManagedObject:(NSManagedObject *)insertedObject {
-    
-    NSManagedObjectContext *backingContext = backingObject.managedObjectContext;
-    
-    [[insertedObject.entity relationshipsByName] enumerateKeysAndObjectsUsingBlock:^(NSString *name, NSRelationshipDescription *relationship, BOOL *stop) {
-    
-        id requestedRelationship = [insertedObject valueForKey:name];
-        if (!requestedRelationship)
-            return;
-        
-        id providedRelationship = nil;
-        
-        NSManagedObject * (^backingObjectForManagedObject)(NSManagedObject *) = ^ (NSManagedObject *incomingObject) {
-        
-            return [self backingObjectInContext:backingContext forManagedObject:incomingObject];
-        
-        };
-        
-        if ([relationship isToMany]) {
-        
-            if ([relationship isOrdered]) {
-            
-                providedRelationship = [NSMutableOrderedSet orderedSet];
-                for (NSManagedObject *relationshipObject in (NSOrderedSet *)requestedRelationship) {
-                    NSManagedObject *relatedObject = backingObjectForManagedObject(relationshipObject);
-                    if (relatedObject) {
-                        [(NSMutableOrderedSet *)providedRelationship addObject:relatedObject];
-                    } else {
-                        NSLog(@"%s: lost track of relationship object %@", __PRETTY_FUNCTION__, relationshipObject);
-                    }
-                }
-            
-            } else {
-            
-                providedRelationship = [NSMutableSet set];
-                for (NSManagedObject *relationshipObject in (NSSet *)requestedRelationship) {
-                    NSManagedObject *relatedObject = backingObjectForManagedObject(relationshipObject);
-                    if (relatedObject) {
-                        [(NSMutableSet *)providedRelationship addObject:relatedObject];
-                    } else {
-                        NSLog(@"%s: lost track of relationship object %@", __PRETTY_FUNCTION__, relationshipObject);
-                    }
-                }
-                
-            }
-        
-        } else {
-        
-            NSManagedObject *relationshipObject = (NSManagedObject *)requestedRelationship;
-            NSManagedObject *relatedObject = backingObjectForManagedObject(relationshipObject);
-            if (relatedObject) {
-                providedRelationship = relatedObject;
-            } else {
-                NSLog(@"%s: lost track of relationship object %@", __PRETTY_FUNCTION__, relationshipObject);
-            }
-        
-        }
-        
-        [backingObject setValue:providedRelationship forKey:name];
-        
-    }];
-
-}
+# pragma mark - Safety
 
 - (void) assertManagedObject:(NSManagedObject *)managedObject hasAssociationsEquivalentToBackingObject:(NSManagedObject *)backingObject {
 
@@ -574,360 +1175,30 @@ NSString * const kAFIncrementalStoreLastModifiedAttributeName = @"__af_lastModif
 
 }
 
-- (NSArray *) operationsForInsertedObject:(NSManagedObject *)insertedObject {
+# pragma mark - Concurrency
 
-    AFHTTPClient<AFIncrementalStoreHTTPClient> *httpClient = self.HTTPClient;
-    NSManagedObjectContext *backingContext = self.backingManagedObjectContext;
-    
-    if (![httpClient respondsToSelector:@selector(requestForInsertedObject:)])
-        return @[];
+- (NSOperationQueue *) operationQueue {
 
-    NSURLRequest *request = [httpClient requestForInsertedObject:insertedObject];
-    if (!request)
-        return @[];
+    if (!_operationQueue) {
     
-    AFHTTPRequestOperation *operation = [httpClient HTTPRequestOperationWithRequest:request success:^(AFHTTPRequestOperation *operation, id responseObject) {
-        
-        NSEntityDescription *entity = insertedObject.entity;
-        NSHTTPURLResponse *response = operation.response;
-        
-        NSString *resourceIdentifier = [self.HTTPClient resourceIdentifierForRepresentation:responseObject ofEntity:entity fromResponse:response];
-
-        NSDictionary *attributes = [self.HTTPClient attributesForRepresentation:responseObject ofEntity:entity fromResponse:response];
-        
-        NSManagedObjectID *objectID = [self objectIDForEntity:[insertedObject entity] withResourceIdentifier:resourceIdentifier];
-        insertedObject.af_resourceIdentifier = resourceIdentifier;
-        [insertedObject setValuesForKeysWithDictionary:attributes];
-        
-        __block NSManagedObject *backingObject = nil;
-        
-        if (objectID) {
-            [backingContext af_performBlockAndWait:^{
-                backingObject = [backingContext existingObjectWithID:objectID error:nil];
-            }];
-        }
-        
-        if (!backingObject) {
-            backingObject = [NSEntityDescription insertNewObjectForEntityForName:insertedObject.entity.name inManagedObjectContext:backingContext];
-            [backingObject.managedObjectContext obtainPermanentIDsForObjects:@[ backingObject ] error:nil];
-        }
-        
-        NSCParameterAssert(backingObject);
-        NSCParameterAssert(backingObject.objectID);
-        NSCParameterAssert(![backingObject.objectID isTemporaryID]);
-        
-        [backingObject setValue:resourceIdentifier forKey:kAFIncrementalStoreResourceIdentifierAttributeName];
-        [backingObject setValuesForKeysWithDictionary:attributes];
-        
-        [self updateRelationshipsOfBackingObject:backingObject withRelationshipsOfManagedObject:insertedObject];
-                        
-        [self obtainPermanentIDForTemporaryObject:insertedObject withResourceIdentifier:resourceIdentifier];
-        
-        [self assertManagedObject:insertedObject hasAssociationsEquivalentToBackingObject:backingObject];
-        
-        [self performUpdatesWithManagedContext:insertedObject.managedObjectContext backingContext:self.backingManagedObjectContext usingBlock:^(NSManagedObjectContext *childManagedContext, NSManagedObjectContext *childBackingContext) {
-            
-            [self importRepresentations:@[ responseObject ] ofEntity:entity fromResponse:operation.response withManagedContext:childManagedContext backingContext:childBackingContext usingBlock:^(NSArray *managedObjects, NSArray *backingObjects) {
-                
-                NSCParameterAssert([managedObjects count] == 1);
-                NSCParameterAssert([backingObjects count] == 1);
-                
-                [childBackingContext af_saveObjects:backingObjects];
-                [childBackingContext.parentContext save:nil];
-                [childManagedContext af_refreshObjects:managedObjects];
-                
-            }];
-            
-        }];
-                        
-    } failure:^(AFHTTPRequestOperation *operation, NSError *error) {
-        
-        NSLog(@"Insert Error: %@", error);
-        
-    }];
-    
-    return @[ operation ];
-
-}
-
-- (NSArray *) operationsForUpdatedObject:(NSManagedObject *)updatedObject {
-
-    AFHTTPClient<AFIncrementalStoreHTTPClient> *httpClient = self.HTTPClient;
-    NSManagedObjectContext *backingContext = self.backingManagedObjectContext;
-    
-    if (![httpClient respondsToSelector:@selector(requestForUpdatedObject:)])
-        return @[];
-    
-    NSURLRequest *request = [httpClient requestForUpdatedObject:updatedObject];
-    if (!request)
-        return nil;
-    
-    AFHTTPRequestOperation *operation = [httpClient HTTPRequestOperationWithRequest:request success:^(AFHTTPRequestOperation *operation, id responseObject) {
-    
-        [updatedObject setValuesForKeysWithDictionary:[httpClient attributesForRepresentation:responseObject ofEntity:updatedObject.entity fromResponse:operation.response]];
-        
-        [backingContext af_performBlockAndWait:^{
-            NSManagedObject *backingObject = [backingContext existingObjectWithID:updatedObject.objectID error:nil];
-            [backingObject setValuesForKeysWithDictionary:[updatedObject dictionaryWithValuesForKeys:nil]];
-            [backingContext save:nil];
-        }];
-        
-    } failure:^(AFHTTPRequestOperation *operation, NSError *error) {
-        
-        NSLog(@"Update Error: %@", error);
-        
-    }];
-    
-    return @[ operation ];
-
-}
-
-- (NSArray *) operationsForDeletedObject:(NSManagedObject *)deletedObject {
-
-    AFHTTPClient<AFIncrementalStoreHTTPClient> *httpClient = self.HTTPClient;
-    NSManagedObjectContext *backingContext = self.backingManagedObjectContext;
-    
-    if (![self.HTTPClient respondsToSelector:@selector(requestForDeletedObject:)])
-        return @[];
-    
-    NSURLRequest *request = [httpClient requestForDeletedObject:deletedObject];
-    if (!request)
-        return nil;
-    
-    AFHTTPRequestOperation *operation = [self.HTTPClient HTTPRequestOperationWithRequest:request success:^(AFHTTPRequestOperation *operation, id responseObject) {
-    
-        [backingContext af_performBlockAndWait:^{
-            
-            NSManagedObject *backingObject = [backingContext existingObjectWithID:deletedObject.objectID error:nil];
-            [backingContext deleteObject:backingObject];
-            [backingContext save:nil];
-            
-        }];
-        
-    } failure:^(AFHTTPRequestOperation *operation, NSError *error) {
-        
-        NSLog(@"Delete Error: %@", error);
-        
-    }];
-    
-    return @[ operation ];
-
-}
-
-- (NSArray *) operationsForSaveChangesRequest:(NSSaveChangesRequest *)saveChangesRequest {
-    
-    NSMutableArray *ops = [NSMutableArray array];
-    
-    NSSet *insertedObjects = [saveChangesRequest insertedObjects];
-    NSSet *updatedObjects = [saveChangesRequest updatedObjects];
-    NSSet *deletedObjects = [saveChangesRequest deletedObjects];
-    
-    for (NSManagedObject *insertedObject in insertedObjects)
-        [ops addObjectsFromArray:[self operationsForInsertedObject:insertedObject]];
-    
-    for (NSManagedObject *updatedObject in updatedObjects)
-        [ops addObjectsFromArray:[self operationsForUpdatedObject:updatedObject]];
-
-    for (NSManagedObject *deletedObject in deletedObjects)
-        [ops addObjectsFromArray:[self operationsForDeletedObject:deletedObject]];
-    
-    return ops;
-    
-}
-
-- (id) executeSaveChangesRequest:(NSSaveChangesRequest *)saveChangesRequest withContext:(NSManagedObjectContext *)context error:(NSError *__autoreleasing *)error {
-
-    //  TBD: AFIncrementalStore should subclass NSOperation directly, or provide a async harness that invokes customer-provided blocks, and allow overriding methods that emit the blocks and blocks that call callback blocks.  Give all the save components a scratchpad to play on, and if everything finished, store everything in a batch.  A potential implementation will involve a change request tree that gets appended by each save operation (emitted by -operationsForSaveChangesRequest: operations).
-    
-    //  This is related to the Undo Management problem: the incremental store does asynchronous data fulfillment, so if the customer changed some more data and things do not go through, we can not even revert.
-
-    NSArray *operations = [self operationsForSaveChangesRequest:saveChangesRequest];
-    if ([operations count]) {
-    
-        [self notifyManagedObjectContext:context aboutRequestOperations:operations forSaveChangesRequest:saveChangesRequest];
-        
-        [self.HTTPClient enqueueBatchOfHTTPRequestOperations:operations progressBlock:^(NSUInteger numberOfFinishedOperations, NSUInteger totalNumberOfOperations) {
-            
-            //  ?
-            
-        } completionBlock:^(NSArray *operations) {
-        
-            [self notifyManagedObjectContext:context aboutRequestOperations:operations forSaveChangesRequest:saveChangesRequest];
-            
-        }];
+        _operationQueue = [RAOperationQueue new];
+        _operationQueue.maxConcurrentOperationCount = 1;
     
     }
     
-    return @[];
-    
-}
-
-#pragma mark -
-
-- (BOOL) shouldFetchRemoteAttributeValuesForObjectWithID:(NSManagedObjectID *)objectID withContext:(NSManagedObjectContext *)context {
-
-    if ([context af_ignoringCount])
-        return NO;
-
-    NSString *resourceIdentifier = [self referenceObjectForObjectID:objectID];
-    if (!resourceIdentifier || (resourceIdentifier && ![resourceIdentifier isKindOfClass:[NSString class]]))
-        return NO;
-    
-    AFHTTPClient<AFIncrementalStoreHTTPClient> *HTTPClient = self.HTTPClient;
-    if (!HTTPClient)
-        return NO;
-    
-    if (![HTTPClient respondsToSelector:@selector(shouldFetchRemoteAttributeValuesForObjectWithID:inManagedObjectContext:)])
-        return NO;
-    
-    return [HTTPClient shouldFetchRemoteAttributeValuesForObjectWithID:objectID inManagedObjectContext:context];
+    return _operationQueue;
 
 }
 
-- (NSIncrementalStoreNode *)newValuesForObjectWithID:(NSManagedObjectID *)objectID
-                                         withContext:(NSManagedObjectContext *)context
-                                               error:(NSError *__autoreleasing *)error
-{
-    
-    NSFetchRequest *fetchRequest = [[NSFetchRequest alloc] initWithEntityName:objectID.entity.name];
-    fetchRequest.resultType = NSDictionaryResultType;
-    fetchRequest.fetchLimit = 1;
-    fetchRequest.includesSubentities = NO;
-    fetchRequest.propertiesToFetch = [[objectID.entity.attributesByName allKeys] arrayByAddingObject:kAFIncrementalStoreResourceIdentifierAttributeName];
-    fetchRequest.predicate = [NSPredicate predicateWithFormat:@"%K = %@", kAFIncrementalStoreResourceIdentifierAttributeName, [self referenceObjectForObjectID:objectID]];
-    
-    __block NSArray *results;
-    NSManagedObjectContext *backingContext = self.backingManagedObjectContext;
-    [backingContext af_performBlockAndWait:^{
-        results = [backingContext executeFetchRequest:fetchRequest error:error];
-    }];
-    
-    NSDictionary *attributeValues = [results lastObject] ?: [NSDictionary dictionary];
-    NSIncrementalStoreNode *node = [[NSIncrementalStoreNode alloc] initWithObjectID:objectID withValues:attributeValues version:1];
-    
-    if (attributeValues)
-    if ([self shouldFetchRemoteAttributeValuesForObjectWithID:objectID withContext:context]) {
-        
-        NSManagedObjectContext *childContext = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
-        childContext.parentContext = context;
-        childContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy;
-        
-        NSMutableURLRequest *request = [self.HTTPClient requestWithMethod:@"GET" pathForObjectWithID:objectID withContext:context];
-        
-        if ([request URL]) {
-            if ([attributeValues valueForKey:kAFIncrementalStoreLastModifiedAttributeName]) {
-                [request setValue:[[attributeValues valueForKey:kAFIncrementalStoreLastModifiedAttributeName] description] forHTTPHeaderField:@"If-Modified-Since"];
-            }
-            
-            AFHTTPRequestOperation *operation = [self.HTTPClient HTTPRequestOperationWithRequest:request success:^(AFHTTPRequestOperation *operation, NSDictionary *representation) {
-                NSManagedObject *managedObject = [childContext existingObjectWithID:objectID error:error];
-                
-                NSMutableDictionary *mutableAttributeValues = [attributeValues mutableCopy];
-                [mutableAttributeValues addEntriesFromDictionary:[self.HTTPClient attributesForRepresentation:representation ofEntity:managedObject.entity fromResponse:operation.response]];
-                [managedObject setValuesForKeysWithDictionary:mutableAttributeValues];
-                
-                NSEntityDescription *entity = objectID.entity;
-                NSString *resourceID = [self referenceObjectForObjectID:objectID];
-                NSManagedObjectContext *backingContext = self.backingManagedObjectContext;
-                
-                [backingContext performBlock:^{
-                    
-                    NSError *backingObjectIDError = nil;
-                    NSManagedObjectID *backingObjectID = [self backingObjectIDForEntity:objectID.entity resourceIdentifier:resourceID inContext:backingContext error:&backingObjectIDError];
+- (dispatch_queue_t) dispatchQueue {
 
-                    NSManagedObject *backingObject = [backingContext existingObjectWithID:backingObjectID error:nil];
-                    [backingObject setValuesForKeysWithDictionary:mutableAttributeValues];
-                    
-                    [backingContext af_saveObjects:@[ backingObject ]];
-                    [childContext af_refreshObjects:@[ managedObject ]];
-                    
-                }];
-                
-            } failure:^(AFHTTPRequestOperation *operation, NSError *error) {
-                
-                NSLog(@"%s: %@, %@", __PRETTY_FUNCTION__, operation, error);
-                
-            }];
-            
-            [self.HTTPClient enqueueHTTPRequestOperation:operation];
-
-        }
+    if (!_dispatchQueue) {
         
+        _dispatchQueue = dispatch_queue_create([NSStringFromClass([self class]) UTF8String], DISPATCH_QUEUE_SERIAL);
+    
     }
     
-    return node;
-    
-}
-
-- (BOOL) shouldFetchRemoteValuesForRelationship:(NSRelationshipDescription *)relationship forObjectWithID:(NSManagedObjectID *)objectID withContext:(NSManagedObjectContext *)context {
-
-    if ([context af_ignoringCount])
-        return NO;
-
-    NSString *resourceIdentifier = [self referenceObjectForObjectID:objectID];
-    if (!resourceIdentifier || (resourceIdentifier && ![resourceIdentifier isKindOfClass:[NSString class]]))
-        return NO;
-    
-    AFHTTPClient<AFIncrementalStoreHTTPClient> *HTTPClient = self.HTTPClient;
-    if (!HTTPClient)
-        return NO;
-    
-    if (![HTTPClient respondsToSelector:@selector(shouldFetchRemoteValuesForRelationship:forObjectWithID:inManagedObjectContext:)])
-        return NO;
-    
-    return [HTTPClient shouldFetchRemoteValuesForRelationship:relationship forObjectWithID:objectID inManagedObjectContext:context];
-
-}
-
-- (id) loadNewValueForRelationship:(NSRelationshipDescription *)relationship forObjectWithID:(NSManagedObjectID *)objectID withContext:(NSManagedObjectContext *)context error:(NSError *__autoreleasing *)error {
-    
-    NSEntityDescription *entity = objectID.entity;
-    NSString *resourceIdentifier = [self referenceObjectForObjectID:objectID];
-    NSManagedObjectContext *backingContext = self.backingManagedObjectContext;
-    
-    NSManagedObjectID *backingObjectID = [self backingObjectIDForEntity:entity resourceIdentifier:resourceIdentifier inContext:backingContext error:nil];
-    
-    NSManagedObject *backingObject = (backingObjectID == nil) ? nil : [backingContext existingObjectWithID:backingObjectID error:nil];
-    
-    if (backingObject && ![backingObject hasChanges]) {
-        id backingRelationshipObject = [backingObject valueForKeyPath:relationship.name];
-        if ([relationship isToMany]) {
-            NSMutableArray *mutableObjects = [NSMutableArray arrayWithCapacity:[backingRelationshipObject count]];
-            for (NSString *resourceIdentifier in [backingRelationshipObject valueForKeyPath:kAFIncrementalStoreResourceIdentifierAttributeName]) {
-                NSManagedObjectID *objectID = [self objectIDForEntity:relationship.destinationEntity withResourceIdentifier:resourceIdentifier];
-                [mutableObjects addObject:objectID];
-            }
-                            
-            return mutableObjects;            
-        } else {
-            NSString *resourceIdentifier = [backingRelationshipObject valueForKeyPath:kAFIncrementalStoreResourceIdentifierAttributeName];
-            NSManagedObjectID *objectID = [self objectIDForEntity:relationship.destinationEntity withResourceIdentifier:resourceIdentifier];
-            
-            return objectID ?: [NSNull null];
-        }
-    } else {
-        if ([relationship isToMany]) {
-            return [NSArray array];
-        } else {
-            return [NSNull null];
-        }
-    }
-    
-}
-
-- (id) newValueForRelationship:(NSRelationshipDescription *)relationship forObjectWithID:(NSManagedObjectID *)objectID withContext:(NSManagedObjectContext *)context error:(NSError *__autoreleasing *)error {
-
-    if ([self shouldFetchRemoteValuesForRelationship:relationship forObjectWithID:objectID withContext:context]) {
-    
-        [self fetchNewValueForRelationship:relationship forObjectWithID:objectID withContext:context usingBlock:^(id representationOrRepresentations, NSURLResponse *response, NSError *error) {
-            
-            //  ?
-            
-        }];
-        
-    }
-    
-    return [self loadNewValueForRelationship:relationship forObjectWithID:objectID withContext:context error:error];
+    return _dispatchQueue;
 
 }
 
@@ -945,215 +1216,7 @@ NSString * const kAFIncrementalStoreLastModifiedAttributeName = @"__af_lastModif
     
 }
 
-- (void) performUpdatesWithManagedContext:(NSManagedObjectContext *)managedContext backingContext:(NSManagedObjectContext *)backingContext usingBlock:(void(^)(NSManagedObjectContext *childManagedContext, NSManagedObjectContext *childBackingContext))block {
-    
-    NSCParameterAssert(managedContext);
-    NSCParameterAssert(managedContext.persistentStoreCoordinator == self.persistentStoreCoordinator);
-    NSCParameterAssert(backingContext);
-    NSCParameterAssert(backingContext.persistentStoreCoordinator == self.backingPersistentStoreCoordinator);
-    NSCParameterAssert(block);
-    
-    __weak typeof(managedContext) wManagedContext = managedContext;
-    __weak typeof(backingContext) wBackingContext = backingContext;
-    
-    [self.operationQueue addOperation:[self newAsyncOperationWithWorker:^(RAAsyncOperationCallback callback) {
-        
-        if (!wManagedContext || !wBackingContext) {
-            callback((id)kCFBooleanFalse);
-            return;
-        }
-        
-        NSManagedObjectContext *childManagedContext = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSConfinementConcurrencyType];
-        childManagedContext.parentContext = wManagedContext;
-        childManagedContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy;
-        
-        NSManagedObjectContext *childBackingContext = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSConfinementConcurrencyType];
-        childBackingContext.parentContext = wBackingContext;
-        childBackingContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy;
-        
-        block(childManagedContext, childBackingContext);
-        callback((id)kCFBooleanTrue);
-
-    } callback:nil]];
-    
-}
-
-- (NSArray *) representationsFromResponseObject:(id)responseObject {
-
-    id representationOrArrayOfRepresentations = [self.HTTPClient representationOrArrayOfRepresentationsFromResponseObject:responseObject];
-    
-    if ([representationOrArrayOfRepresentations isKindOfClass:[NSArray class]])
-        return representationOrArrayOfRepresentations;
-    
-    if ([representationOrArrayOfRepresentations isKindOfClass:[NSDictionary class]])
-        return @[ representationOrArrayOfRepresentations ];
-    
-    return nil;
-    
-}
-
-- (void) fetchNewValueForRelationship:(NSRelationshipDescription *)relationship forObjectWithID:(NSManagedObjectID *)objectID withContext:(NSManagedObjectContext *)context usingBlock:(void(^)(id representationOrRepresentations, NSURLResponse *response, NSError *error))block {
-    
-    NSCParameterAssert(relationship);
-    NSCParameterAssert(objectID);
-    NSCParameterAssert(context);
-    NSCParameterAssert(block);
-    
-    if (![self shouldFetchRemoteValuesForRelationship:relationship forObjectWithID:objectID withContext:context]) {
-        block(nil, nil, nil);
-        return;
-    }
-    
-    NSURLRequest *request = [self requestForRelationship:relationship forObjectWithID:objectID context:context];
-    if (!request.URL)
-        return;
-    
-    NSManagedObject *existingObject = [context existingObjectWithID:objectID error:nil];
-    if (existingObject && [existingObject hasChanges])
-        return;
-    
-    __weak typeof(self.HTTPClient) wClient = self.HTTPClient;
-    __weak typeof(self) wSelf = self;
-    
-    AFHTTPRequestOperation *operation = [self.HTTPClient HTTPRequestOperationWithRequest:request success:^(AFHTTPRequestOperation *operation, id responseObject) {
-    
-        NSArray *representations = [self representationsFromResponseObject:responseObject];
-        if (![representations count]) {
-            block(responseObject, operation.response, nil);
-            return;
-        }
-        
-        [self performUpdatesWithManagedContext:context backingContext:self.backingManagedObjectContext usingBlock:^(NSManagedObjectContext *childManagedContext, NSManagedObjectContext *childBackingContext) {
-            
-            [self importRepresentations:representations ofEntity:relationship.destinationEntity fromResponse:operation.response withManagedContext:childManagedContext backingContext:childBackingContext usingBlock:^(NSArray *managedObjects, NSArray *backingObjects) {
-                
-                NSManagedObject *managedObject = [childManagedContext objectWithID:objectID];
-                NSString *referenceObject = [self referenceObjectForObjectID:objectID];
-                NSManagedObjectID *backingObjectID = [self backingObjectIDForEntity:objectID.entity resourceIdentifier:referenceObject inContext:childBackingContext error:nil];
-                
-                NSManagedObject *backingObject = [childBackingContext existingObjectWithID:backingObjectID error:nil];
-                
-                [managedObject af_setValue:managedObjects forRelationship:relationship];
-                [backingObject af_setValue:backingObjects forRelationship:relationship];
-                
-                [childBackingContext af_saveObjects:backingObjects];
-                [childBackingContext.parentContext save:nil];
-                [childManagedContext af_refreshObjects:managedObjects];
-                
-                block(responseObject, operation.response, nil);
-                
-            }];           
-            
-        }];
-        
-    } failure:^(AFHTTPRequestOperation *operation, NSError *error) {
-        
-        NSLog(@"Error: %@, %@", operation, error);
-        
-    }];
-    
-    operation.successCallbackQueue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0);
-    operation.failureCallbackQueue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0);
-
-    [self.HTTPClient enqueueHTTPRequestOperation:operation];
-
-}
-
-- (NSURLRequest *) requestForRelationship:(NSRelationshipDescription *)relationship forObjectWithID:(NSManagedObjectID *)objectID context:(NSManagedObjectContext *)context {
-
-    return [self.HTTPClient requestWithMethod:@"GET" pathForRelationship:relationship forObjectWithID:objectID withContext:context];
-
-}
-
-#pragma mark - Object Identity
-
-- (NSArray *) obtainPermanentIDsForObjects:(NSArray *)array error:(NSError **)error {
-    
-    NSMutableArray *mutablePermanentIDs = [NSMutableArray arrayWithCapacity:[array count]];
-    for (NSManagedObject *managedObject in array) {
-        NSManagedObjectID *managedObjectID = managedObject.objectID;
-        if ([managedObjectID isTemporaryID] && managedObject.af_resourceIdentifier) {
-            NSManagedObjectID *objectID = [self objectIDForEntity:managedObject.entity withResourceIdentifier:managedObject.af_resourceIdentifier];
-            [mutablePermanentIDs addObject:objectID];
-        } else {
-            [mutablePermanentIDs addObject:managedObjectID];
-        }
-    }
-    
-    return mutablePermanentIDs;
-    
-}
-
-- (void) managedObjectContextDidRegisterObjectsWithIDs:(NSArray *)objectIDs {
-
-    [super managedObjectContextDidRegisterObjectsWithIDs:objectIDs];
-    
-    for (NSManagedObjectID *objectID in objectIDs) {
-        
-        id key = [self referenceObjectForObjectID:objectID];
-        NSString *entityName = objectID.entity.name;
-        NSMutableDictionary *objectIDsByResourceIdentifier = _registeredObjectIDsByResourceIdentifier[entityName];
-        if (!objectIDsByResourceIdentifier) {
-            objectIDsByResourceIdentifier = [NSMutableDictionary dictionary];
-            _registeredObjectIDsByResourceIdentifier[entityName] = objectIDsByResourceIdentifier;
-        }
-        
-        objectIDsByResourceIdentifier[key] = objectID;
-        
-    }
-    
-}
-
-- (void) managedObjectContextDidUnregisterObjectsWithIDs:(NSArray *)objectIDs {
-    
-    [super managedObjectContextDidUnregisterObjectsWithIDs:objectIDs];
-    
-    for (NSManagedObjectID *objectID in objectIDs) {
-        
-        id key = [self referenceObjectForObjectID:objectID];
-        NSString *entityName = objectID.entity.name;
-        
-        [_registeredObjectIDsByResourceIdentifier[entityName] removeObjectForKey:key];
-        
-    }
-    
-}
-
-#pragma mark - Notifications
-
-- (void) notifyManagedObjectContext:(NSManagedObjectContext *)context aboutRequestOperation:(AFHTTPRequestOperation *)operation forFetchRequest:(NSFetchRequest *)fetchRequest {
-    
-    NSString *notificationName = [operation isFinished] ?
-        AFIncrementalStoreContextDidFetchRemoteValues :
-        AFIncrementalStoreContextWillFetchRemoteValues;
-
-    NSDictionary *userInfo = @{
-        AFIncrementalStoreRequestOperationKey: operation,
-        AFIncrementalStorePersistentStoreRequestKey: fetchRequest
-    };
-    
-    dispatch_async(dispatch_get_main_queue(), ^{
-        
-        [[NSNotificationCenter defaultCenter] postNotificationName:notificationName object:context userInfo:userInfo];
-        
-    });
-
-}
-
-- (void)notifyManagedObjectContext:(NSManagedObjectContext *)context
-            aboutRequestOperations:(NSArray *)operations
-             forSaveChangesRequest:(NSSaveChangesRequest *)saveChangesRequest
-{
-    NSString *notificationName = [[operations lastObject] isFinished] ? AFIncrementalStoreContextDidSaveRemoteValues : AFIncrementalStoreContextWillSaveRemoteValues;
-    
-    NSMutableDictionary *userInfo = [NSMutableDictionary dictionary];
-    [userInfo setObject:operations forKey:AFIncrementalStoreRequestOperationKey];
-    [userInfo setObject:saveChangesRequest forKey:AFIncrementalStorePersistentStoreRequestKey];
-
-    [[NSNotificationCenter defaultCenter] postNotificationName:notificationName object:context userInfo:userInfo];
-}
-
-#pragma mark - Utilities
+# pragma mark - Utilities
 
 - (NSDate *) lastModifiedDateFromHTTPHeaders:(NSDictionary *)headers {
     
