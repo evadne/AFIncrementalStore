@@ -71,15 +71,12 @@ const void * kIgnoringCount = &kIgnoringCount;
 
 	switch (self.concurrencyType) {
 	
-		case NSMainQueueConcurrencyType: {
-			
+		case NSMainQueueConcurrencyType:
+		case NSPrivateQueueConcurrencyType: {
 			[self performBlockAndWait:block];
-			
 			break;
-			
 		}
 		
-		case NSPrivateQueueConcurrencyType:
 		case NSConfinementConcurrencyType: {
 			
 			if (self.parentContext) {
