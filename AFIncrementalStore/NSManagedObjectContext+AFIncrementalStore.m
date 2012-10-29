@@ -2,22 +2,9 @@
 #import "NSManagedObjectContext+AFIncrementalStore.h"
 #import "RASchedulingKit.h"
 
-const void * kDispatchQueue = &kDispatchQueue;
 const void * kIgnoringCount = &kIgnoringCount;
 
 @implementation NSManagedObjectContext (AFIncrementalStore)
-
-- (dispatch_queue_t) af_dispatchQueue {
-
-	dispatch_queue_t queue = objc_getAssociatedObject(self, &kDispatchQueue);
-	if (!queue) {
-		queue = dispatch_queue_create([NSStringFromClass([self class]) UTF8String], DISPATCH_QUEUE_SERIAL);
-		objc_setAssociatedObject(self, &kDispatchQueue, queue, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-	}
-	
-	return queue;
-
-}
 
 - (BOOL) af_isDescendantOfContext:(NSManagedObjectContext *)context {
 
@@ -78,23 +65,8 @@ const void * kIgnoringCount = &kIgnoringCount;
 		}
 		
 		case NSConfinementConcurrencyType: {
-			
-			if (self.parentContext) {
-				
-				[self.parentContext af_performBlockAndWait:block];
-				
-			} else {
-
-				dispatch_sync([self af_dispatchQueue], ^{
-					
-					[self performBlockAndWait:block];
-					
-				});
-			
-			}
-			
+			block();
 			break;
-			
 		}
 	
 	}
