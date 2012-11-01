@@ -6,4 +6,6 @@
 
 - (BOOL) af_isPermanent;
 
+- (void) af_setValue:(id)value forRelationship:(NSRelationshipDescription *)relationship;
+
 @end
