@@ -351,12 +351,13 @@ NSString * const kAFIncrementalStoreLastModifiedAttributeName = @"__af_lastModif
     NSFetchRequestResultType resultType = fetchRequest.resultType;
     switch (resultType) {
         case NSManagedObjectResultType: {
-            fetchRequest = [fetchRequest copy];
-            fetchRequest.entity = [NSEntityDescription entityForName:fetchRequest.entityName inManagedObjectContext:backingContext];
-            fetchRequest.resultType = NSDictionaryResultType;
-            fetchRequest.propertiesToFetch = @[ kAFIncrementalStoreResourceIdentifierAttributeName ];
+            
+            NSFetchRequest *backingFetchRequest = [fetchRequest copy];
+            backingFetchRequest.entity = [NSEntityDescription entityForName:backingFetchRequest.entityName inManagedObjectContext:backingContext];
+            backingFetchRequest.resultType = NSDictionaryResultType;
+            backingFetchRequest.propertiesToFetch = @[ kAFIncrementalStoreResourceIdentifierAttributeName ];
             [backingContext af_performBlockAndWait:^{
-                results = [backingContext executeFetchRequest:fetchRequest error:error];                
+                results = [backingContext executeFetchRequest:backingFetchRequest error:error];                
             }];
             
             NSMutableArray *mutableObjects = [NSMutableArray arrayWithCapacity:[results count]];
@@ -473,11 +474,14 @@ NSString * const kAFIncrementalStoreLastModifiedAttributeName = @"__af_lastModif
 
 - (NSIncrementalStoreNode *) retrieveLocalValuesForObjectWithID:(NSManagedObjectID *)objectID context:(NSManagedObjectContext *)context error:(NSError **)error {
 
+    NSCParameterAssert([self.persistentStoreCoordinator.managedObjectModel.entities containsObject:objectID.entity]);
+    NSCParameterAssert(![self.backingManagedObjectContext.persistentStoreCoordinator.managedObjectModel.entities containsObject:objectID.entity]);
+    
     NSFetchRequest *fetchRequest = [[NSFetchRequest alloc] initWithEntityName:objectID.entity.name];
     fetchRequest.resultType = NSDictionaryResultType;
     fetchRequest.fetchLimit = 1;
     fetchRequest.includesSubentities = NO;
-    fetchRequest.propertiesToFetch = [[objectID.entity.attributesByName allKeys] arrayByAddingObject:kAFIncrementalStoreResourceIdentifierAttributeName];
+    fetchRequest.returnsObjectsAsFaults = NO;
     fetchRequest.predicate = [NSPredicate predicateWithFormat:@"%K = %@", kAFIncrementalStoreResourceIdentifierAttributeName, [self referenceObjectForObjectID:objectID]];
 
     __block NSArray *results;
@@ -990,6 +994,9 @@ NSString * const kAFIncrementalStoreLastModifiedAttributeName = @"__af_lastModif
 
 - (NSManagedObjectID *) objectIDForEntity:(NSEntityDescription *)entity withResourceIdentifier:(NSString *)resourceIdentifier {
     
+    NSCParameterAssert([self.persistentStoreCoordinator.managedObjectModel.entities containsObject:entity]);
+    NSCParameterAssert(![self.backingPersistentStoreCoordinator.managedObjectModel.entities containsObject:entity]);
+    
     if (!resourceIdentifier)
         return nil;
     
@@ -1000,6 +1007,7 @@ NSString * const kAFIncrementalStoreLastModifiedAttributeName = @"__af_lastModif
     
     NSCParameterAssert(objectID);
     NSCParameterAssert([objectID.entity.name isEqualToString:entity.name]);
+        
     return objectID;
     
 }
