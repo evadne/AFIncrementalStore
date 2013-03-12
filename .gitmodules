@@ -3,4 +3,4 @@
 	url = git://github.com/AFNetworking/AFNetworking.git
 [submodule "ISO8601DateFormatter"]
 	path = ISO8601DateFormatter
-	url = https://github.com/AFNetworking/ISO8601DateFormatter.git
+	url = git://github.com/evadne/ISO8601DateFormatter.git
